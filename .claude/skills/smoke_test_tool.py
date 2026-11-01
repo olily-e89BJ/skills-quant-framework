@@ -1,7 +1,7 @@
 """
 快速测试脚本 - 验证股票数据工具是否正常工作
 
-审计 L5: 旧实现是**模块级脚本** —— import 即打 akshare 网络 / 在 CWD 建
+早期实现是**模块级脚本** —— import 即打 akshare 网络 / 在 CWD 建
 `./test_data/` / 失败时 `exit(1)` 直接终止进程; 且文件名匹配 pytest 的
 `python_files = test_*.py` → 一旦被 pytest 收集 (或被别的模块 import),
 副作用发生在**导入期** (最坏的时机: 连报错都难定位)。

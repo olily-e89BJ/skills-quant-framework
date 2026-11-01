@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""L1 选股层共享因子库 — 原始因子计算的单一真相源
+"""选股层共享因子库 — 原始因子计算的单一真相源
 
-审计 #11 / C-P1-11: 三套选股器 (multi_factor_selection / stock_selector /
+三套选股器 (multi_factor_selection / stock_selector /
 long_term_selector) 各自重复实现动量、波动率等原始因子。本模块收敛为
 **只算原始因子值** 的叶子库:
 

@@ -90,7 +90,7 @@ class TechnicalAnalyzer:
 
     def _calculate_indicators(self, data):
         """计算技术指标"""
-        # 共享指标引擎 (审计 #10): 公式唯一来源 core.indicators
+        # 共享指标引擎: 公式唯一来源 core.indicators
         eng = IndicatorEngine(data)
 
         # 基础均线指标
@@ -115,10 +115,10 @@ class TechnicalAnalyzer:
 
         # 趋势指标
         data = TrendIndicators.ema(data, 20)
-        # 列名契约 (审计 B-C7): 统一 EMA20, EMA_20 保留为别名
+        # 列名契约: 统一 EMA20, EMA_20 保留为别名
         data['EMA20'] = data['EMA_20']
         data = TrendIndicators.hull_ma(data, 20)
-        # VWAP 为**累积口径** (锚定传入序列起点, 审计 L10): 此处喂的是
+        # VWAP 为**累积口径** (锚定传入序列起点): 此处喂的是
         # 多根日线 → 得到的是该窗口的锚定 VWAP 序列, 不是单日 VWAP
         data = TrendIndicators.vwap(data)
 
@@ -184,7 +184,7 @@ class TechnicalAnalyzer:
     def _analyze_signals(self, data):
         """分析买卖信号 (最新 bar 收盘后成立 → 次一交易日开盘可执行)
 
-        口径约定 (审计 B10 / 审计 C #9b 诚实性):
+        口径约定:
         - **真交叉**: MACD/KDJ 的"金叉/死叉"只在**当根与前一根发生交叉**时
           报出 (与 signal_generator 的 shift(1) 交叉检测同源), 水平状态
           (K>D / DIF>DEA) 一律用中性标签, 不冒充"金叉"。

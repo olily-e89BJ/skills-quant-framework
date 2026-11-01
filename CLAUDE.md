@@ -26,7 +26,7 @@ The previous version of this file referenced `quant_analysis_workflow.py` and `s
 
 ```bash
 # Install dependencies (core only)
-pip install pandas numpy akshare matplotlib
+pip install pandas numpy scipy akshare matplotlib
 # Optional but recommended
 pip install streamlit scikit-learn scipy
 # Web stack
@@ -50,7 +50,7 @@ python -m pytest --cov=.claude/skills --cov-report=term
 python -c "from stock_data_fetcher import StockDataFetcher; f=StockDataFetcher(); print(f.get_quote_data('600519', days=120).tail())"
 ```
 
-Pytest is configured via `pytest.ini` with `pythonpath = .` and `testpaths = tests/`, so modules under `.claude/skills/` import directly by filename (e.g. `from stock_data_fetcher import StockDataFetcher` — no package prefix).
+Pytest is configured via `pytest.ini` with `pythonpath = . .claude/skills` and `testpaths = tests/`, so modules under `.claude/skills/` import directly by filename (e.g. `from stock_data_fetcher import StockDataFetcher` — no package prefix).
 
 ## Module Layout (`.claude/skills/`)
 
@@ -58,7 +58,7 @@ All core modules live flat in `.claude/skills/`. The framework imports them by b
 
 **Data layer**
 - `stock_data_fetcher.py` — historical quotes via akshare `stock_zh_a_daily` (新浪财经源; 旧文档误称"腾讯接口", 已订正) + Tencent `qt.gtimg.cn` realtime; cache in `stock_data/quotes/`
-- `realtime_quote.py` — Tencent `qt.gtimg.cn` real-time quotes (wired into web_app 实时监控页, 审计 #18)
+- `realtime_quote.py` — Tencent `qt.gtimg.cn` real-time quotes (wired into web_app 实时监控页)
 - `stock_list_manager.py` / `stock_list.csv` — A-share universe
 
 **Analysis layer**
@@ -90,7 +90,7 @@ All core modules live flat in `.claude/skills/`. The framework imports them by b
 - `quant_workflow.py` — `QuantWorkflow` class wires all 7 stages end-to-end
 - `position_analyzer.py` — analyzes an existing portfolio CSV
 - `js_runtime.py` — **进程级 V8 闸门**: 新浪 KLC 载荷解密要跑 `py_mini_racer` (V8), 而 V8 isolate 非线程安全 → 批量取数 4 线程并发建 isolate 会触发 `address_pool_manager.cc: Check failed: !pool->IsInitialized!` → **SIGTRAP 打死进程** (非 Python 异常, try/except 拦不住). 闸门用代理类替换 `py_mini_racer.MiniRacer`, 把建 isolate/eval/call/释放全部串到一把 RLock (网络 I/O 仍并行); 语义不变 (仍独立 context). `sina_daily`/指数取数路径接线, 导入即装闸门. 门禁 `tests/test_js_runtime.py`
-- `parameter_space.py` / `optimization_config.py` / `optimization_engine.py` — optuna-style search (engine 真读配置: `OptimizationEngine(config=)` / CLI `run --config x.json`, 优先级: 显式 CLI 参数 > config.* > 阶段分档默认; 子命令 > config.mode; `use_weighted_scoring` 默认开 — GA 六个评分维 (w_trend/w_momentum/w_risk/w_performance/score_buy/score_sell) 真参与 fitness, `false` 回退投票制旧基线). E-P1 #19 已闭环: `optimized_params.load_optimized_params(best_params.json)` 下发 + `SignalGenerator(use_weighted_scoring, scoring_params)` 评分双模式 (默认 False, 生产调用方零变化; 便捷函数 `get_latest_signal(data, params=)` 直通; web_app 侧边栏 `🎯 优化参数` 加载/清除 best_params.json → `generator_from_params` 换实例全站信号面跟随)
+- `parameter_space.py` / `optimization_config.py` / `optimization_engine.py` — optuna-style search (engine 真读配置: `OptimizationEngine(config=)` / CLI `run --config x.json`, 优先级: 显式 CLI 参数 > config.* > 阶段分档默认; 子命令 > config.mode; `use_weighted_scoring` 默认开 — GA 六个评分维 (w_trend/w_momentum/w_risk/w_performance/score_buy/score_sell) 真参与 fitness, `false` 回退投票制旧基线). 参数下发闭环: `optimized_params.load_optimized_params(best_params.json)` + `SignalGenerator(use_weighted_scoring, scoring_params)` 评分双模式 (默认 False, 生产调用方零变化; 便捷函数 `get_latest_signal(data, params=)` 直通; web_app 侧边栏 `🎯 优化参数` 加载/清除 best_params.json → `generator_from_params` 换实例全站信号面跟随)
 
 ## 7-Stage Pipeline (in `quant_workflow.py`)
 
@@ -114,11 +114,9 @@ All core modules live flat in `.claude/skills/`. The framework imports them by b
 
 ## Test Layout
 
-- Root: `test_signal_generator.py` (legacy single-file test)
-- `tests/` — pytest suite, 20+ files. Use `python -m pytest tests/ -v` (config in `pytest.ini`).
+- Root: `test_signal_generator.py` (legacy ad-hoc script; not part of the suite)
+- `tests/` — pytest suite (48 test files). Use `python -m pytest tests/ -v` (config in `pytest.ini`).
 - Markers defined: `unit`, `integration`, `slow`, `data` (apply via `@pytest.mark.integration` etc.).
-- Integration tests (`test_integration.py`, `test_new_modules*.py`) are known to skip when optional deps are absent — this is expected, not a failure.
-- Some `test_*.py` files in the repo root and `tests/` are scheduled for deletion (currently in the ` D ` state per `git status`); safe to drop on sight.
 
 ## Settings / Hooks
 
@@ -129,7 +127,7 @@ All core modules live flat in `.claude/skills/`. The framework imports them by b
 
 | Category | Package | Required? |
 |---|---|---|
-| Core | `pandas`, `numpy`, `akshare`, `matplotlib` | yes |
+| Core | `pandas`, `numpy`, `scipy`, `akshare`, `matplotlib` | yes |
 | Web | `streamlit`, `altair`, `plotly` | for `web_app.py` only |
 | Persistence | (none — Parquet via pyarrow is the backtest source of truth) | — |
 | ML/Opt | `scikit-learn`, `scipy` | optional |
@@ -138,15 +136,15 @@ Pinned versions in `web_requirements.txt`; framework imports succeed even if all
 
 ## Documentation Map
 
-- `README.md` — primary entry, v2.0 module index
+- `README.md` — primary entry, module index
 - `QUICK_START_GUIDE.md` — 5-minute onboarding
-- `API_REFERENCE_V2.md` / `API_REFERENCE.md` — full API
-- `USER_MANUAL_V2.md` / `USAGE_EXAMPLES.md` — recipes
+- `API_REFERENCE.md` — full API
+- `docs/USER_MANUAL_V2.md` / `docs/USAGE_EXAMPLES.md` — recipes
+- `docs/skills_layers.md` — layered architecture and contracts
 - `DEPLOYMENT_GUIDE.md` — install + ops
-- `FAQ.md` — common questions
+- `docs/FAQ.md` — common questions
 - `CHANGELOG.md` — version history
-- `SKILLS_DEVELOPMENT_SUMMARY.md` / `MARCH_COMPLETION_REPORT.md` — design rationale
-- Per-skill docs: `.claude/skills/SKILL.md`, `.claude/skills/USER_GUIDE.md`, `.claude/skills/ROADMAP.md`
+- Per-skill docs: `.claude/skills/SKILL.md`, `.claude/skills/USER_GUIDE.md`
 
 ## Important Notes for Future Sessions
 

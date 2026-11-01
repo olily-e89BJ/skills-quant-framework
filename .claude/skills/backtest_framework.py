@@ -12,7 +12,7 @@ Backtesting Framework - Complete Version
 - 增强绩效指标 (Enhanced Metrics)
 - 分仓交易 (Partial Position)
 - 详细报告 (Detailed Report)
-- 成交容量约束 (审计 B14/H7): 单笔买入 ≤ 当日成交额 × 参与率 (默认 5%),
+- 成交容量约束: 单笔买入 ≤ 当日成交额 × 参与率 (默认 5%),
   容量不足则按上限部分成交 —— 成交量不再只用于信号打分
 """
 
@@ -60,7 +60,7 @@ class PositionConfig:
     sizing_value: float = 0.95          # 持仓规模参数 (金额/百分比/股数)
     max_position_pct: float = 1.0       # 最大持仓比例
 
-    # 成交容量约束 (审计 B14/H7): 单笔买入金额 ≤ 当日成交额 × 该比例
+    # 成交容量约束: 单笔买入金额 ≤ 当日成交额 × 该比例
     # 0 = 关闭 (退回旧行为)。数据缺 '成交额'/'成交量' 时如实跳过并告警。
     max_volume_participation: float = 0.05
 
@@ -79,7 +79,7 @@ class PositionConfig:
             import warnings
             warnings.warn(
                 f"PositionConfig.max_position_pct={self.max_position_pct} "
-                f"为无上限配置(单票可满仓), 实盘建议 ≤0.5 (审计项 20)",
+                f"为无上限配置(单票可满仓), 实盘建议 ≤0.5",
                 stacklevel=2)
 
 
@@ -135,7 +135,7 @@ class BacktestEngine:
         self.equity = []
         self.daily_values = []
         self.pending_order = None
-        # 审计 H5: 停牌建模状态 (无日历 → None = 不建模)
+        # 停牌建模状态 (无日历 → None = 不建模)
         self.suspension = None
         self.suspension_blocked_bars = 0
         self.suspension_blocked_liquidations = 0
@@ -151,10 +151,10 @@ class BacktestEngine:
             data: DataFrame, 包含OHLCV及技术指标
             strategy: 策略函数, 返回买入/卖出信号
             symbol: 股票代码
-            warmup_data: 可选的窗口前历史 (审计 B25/H9①)
+            warmup_data: 可选的窗口前历史
                 策略可见这段历史 (指标预热, 不再冷启动), 但**账户从窗口第一根
                 bar 开始交易** (空仓起步, 不带入预热期盈亏)
-            trading_calendar: 可选的交易日历 (审计 H5)
+            trading_calendar: 可选的交易日历
                 提供后启用停牌建模: 停牌日不撮合 + 净值曲线按**交易日**
                 对齐 (停牌日沿用上一市值) → 年化/Sharpe 分母不再被停牌
                 压扁 (旧实现按 bar 数算 → 停牌期被当作没发生, 年化虚高)。
@@ -181,12 +181,12 @@ class BacktestEngine:
             combined = self._calculate_atr(combined)
         window = combined.iloc[w:].reset_index(drop=True) if w else combined
 
-        # 成交容量约束是否可检查 (审计 B14/H7): 数据缺 成交额/成交量 列时
+        # 成交容量约束是否可检查: 数据缺 成交额/成交量 列时
         # 如实记 False (结果里可查), 不假装已施加容量上限
         self.capacity_checked = bool(
             ('成交额' in window.columns) or ('成交量' in window.columns))
 
-        # 停牌建模 (审计 H5): 由**真实交易日历** + 个股行情行推导真停牌日。
+        # 停牌建模: 由**真实交易日历** + 个股行情行推导真停牌日。
         # 无日历 → 不建模 (如实记 suspension_modeled=False), 行为与旧版一致。
         self.suspension = _suspension.SuspensionModel.build(
             trading_calendar, window['日期'].tolist())
@@ -200,7 +200,7 @@ class BacktestEngine:
             current_date = current_bar['日期']
             prev_close = window['收盘'].iloc[i - 1]
 
-            # 0) 停牌日不撮合 (审计 H5): 数据里若出现"日历判定为停牌"的行
+            # 0) 停牌日不撮合: 数据里若出现"日历判定为停牌"的行
             #    (陈旧/脏数据), 该 bar 不可成交 —— 挂单顺延, 止损止盈跳过
             tradable = True
             if self.suspension is not None:
@@ -347,7 +347,7 @@ class BacktestEngine:
             shares = self._calculate_position_size(raw_price, atr)
             shares = (shares // 100) * 100  # A股整手(100股)约束
 
-            # 成交容量约束 (审计 B14/H7): 单笔买入金额 ≤ 当日成交额 × 参与率
+            # 成交容量约束: 单笔买入金额 ≤ 当日成交额 × 参与率
             cap_notional = capacity_limit_notional(
                 bar_turnover_amount(bar, raw_price),
                 self.position_config.max_volume_participation)
@@ -397,7 +397,7 @@ class BacktestEngine:
                 'cost': cost,
                 'fee': fee,
                 'stop_loss': stop_loss_price,
-                # 审计 H5: 持仓跨停牌的交易日数 (卖出时回填, 买入时为 0)
+                # 持仓跨停牌的交易日数 (卖出时回填, 买入时为 0)
                 'suspended_days': 0
             })
             return None
@@ -458,7 +458,7 @@ class BacktestEngine:
         fee = self.cost_model.sell_cost(sell_price, position.shares)
         proceeds = position.shares * sell_price - fee
 
-        # 审计 H5: 持仓期间跨越的停牌交易日数 (跳空敞口的可见化)
+        # 持仓期间跨越的停牌交易日数 (跳空敞口的可见化)
         suspended_days = 0
         if getattr(self, 'suspension', None) is not None:
             suspended_days = self.suspension.suspended_days_between(
@@ -482,7 +482,7 @@ class BacktestEngine:
         del self.positions[symbol]
 
     def _align_equity_to_trading_days(self, equity_df: pd.DataFrame):
-        """把净值曲线对齐到交易日历 (停牌日沿用上一市值) —— 审计 H5。
+        """把净值曲线对齐到交易日历 (停牌日沿用上一市值)。
 
         停牌日个股无价格 → 市值不变 (无 P&L)。旧实现只按**bar 数**做
         时间轴 (年化分母 252/days、夏普按 bar 收益年化) → 停牌期被
@@ -525,7 +525,7 @@ class BacktestEngine:
         if len(equity_df) == 0:
             return {}
 
-        # 审计 H5: 净值曲线按**交易日**对齐 (停牌日市值持平) → 年化/夏普
+        # 净值曲线按**交易日**对齐 (停牌日市值持平) → 年化/夏普
         # 分母不再被停牌压扁; 无日历 → 不对齐 (与旧版逐位一致)
         equity_df, equity_aligned = self._align_equity_to_trading_days(equity_df)
 
@@ -608,7 +608,7 @@ class BacktestEngine:
             take_profit_count = 0
             signal_exit_count = 0
 
-        # 胜负序列分析 (审计 B48/M1): 连胜/连亏统计基准统一为**交易序列**
+        # 胜负序列分析: 连胜/连亏统计基准为**交易序列**
         # (与引擎 B 同口径) —— 旧实现统计在日频净值曲线上, 同名字段两套口径。
         if len(sell_trades) > 0:
             max_consecutive_wins, max_consecutive_losses = \
@@ -630,7 +630,7 @@ class BacktestEngine:
             'symbol': symbol,
             'initial_cash': self.initial_cash,
             'capacity_checked': bool(getattr(self, 'capacity_checked', True)),
-            # 审计 H5: 停牌建模口径 (无日历 → modeled=False, 如实)
+            # 停牌建模口径 (无日历 → modeled=False, 如实)
             'suspension_modeled': bool(self.suspension is not None),
             'suspension_days': (len(self.suspension.suspended_days)
                                 if self.suspension is not None else 0),
@@ -832,7 +832,7 @@ class StrategyFactory:
 
 
 def _stitch_oos_equity(window_curves, initial_cash=100000):
-    """把各 OOS 窗口的日频净值曲线拼成一条连续曲线 (审计 B25/H9②)
+    """把各 OOS 窗口的日频净值曲线拼成一条连续曲线
 
     各窗口独立回测 (每窗账户从 initial_cash 起步), 拼接时按资金连续性缩放:
     第 w 窗的净值整体乘以"累计资金 / initial_cash", 于是拼接曲线的收益率
@@ -926,7 +926,7 @@ class ParameterOptimizer:
             strategy_template: 策略模板函数
             param_grid: 参数网格
             metric: 优化目标指标
-            warmup_data: 可选的窗口前历史 (审计 B25/H9①), 策略可见但不参与交易
+            warmup_data: 可选的窗口前历史, 策略可见但不参与交易
 
         Returns:
             最佳参数和结果
@@ -964,12 +964,12 @@ class ParameterOptimizer:
     def walk_forward(data, strategy_template, param_range, train_period=252,
                      test_period=63, warmup_period=60):
         """
-        滚动窗口优化 (审计 B25/H9)
+        滚动窗口优化
 
         两处结构性修复:
         - **测试窗口带预热** (warmup_period 根窗口前历史): 旧版测试窗是裸
           切片, 策略内实时算 MA 时 63 根窗口配 slow=20 只剩 43 根可用 bar
-          → OOS 被结构性削弱 (审计标 ↓悲观)。预热段只给策略看指标, 账户
+          → OOS 被结构性削弱 (标注 ↓悲观)。预热段只给策略看指标, 账户
           仍从窗口第一根 bar 空仓起步。
         - **OOS 净值曲线拼接**: 旧版只返回每窗 dict 列表, 拿不到真正的 OOS
           整体绩效; 现把各窗口日频净值曲线按资金连续性拼成一条曲线, 并给出
@@ -1156,7 +1156,7 @@ class PerformanceReport:
         report.append(f"  Signal Exits:        {results.get('signal_exit_count', 0)}")
         report.append("")
 
-        # 序列分析 (交易序列口径, 审计 B48/M1)
+        # 序列分析 (交易序列口径)
         report.append("[Streak Analysis]")
         report.append(f"  Max Consecutive Wins:    {results.get('max_consecutive_wins', 0)}  (trades)")
         report.append(f"  Max Consecutive Losses:  {results.get('max_consecutive_losses', 0)}  (trades)")
@@ -1279,7 +1279,7 @@ def get_conservative_config() -> PositionConfig:
     return PositionConfig(
         sizing_method=PositionSizingMethod.PERCENT_OF_EQUITY,
         sizing_value=0.5,              # 50%仓位
-        max_position_pct=0.5,          # 单票上限=仓位 (审计项 20: 显式约束)
+        max_position_pct=0.5,          # 单票上限=仓位 (显式约束)
         stop_loss_method=StopLossMethod.PERCENTAGE,
         stop_loss_pct=0.05,            # 5%止损
         take_profit_pct=0.10,          # 10%止盈
@@ -1292,7 +1292,7 @@ def get_balanced_config() -> PositionConfig:
     return PositionConfig(
         sizing_method=PositionSizingMethod.PERCENT_OF_EQUITY,
         sizing_value=0.8,              # 80%仓位
-        max_position_pct=0.8,          # 单票上限=仓位 (审计项 20: 显式约束)
+        max_position_pct=0.8,          # 单票上限=仓位 (显式约束)
         stop_loss_method=StopLossMethod.PERCENTAGE,
         stop_loss_pct=0.08,            # 8%止损
         take_profit_pct=0.20,          # 20%止盈
@@ -1340,7 +1340,7 @@ def run_backtest(data: pd.DataFrame, strategy: Callable,
         initial_cash: 初始资金
         position_config: 持仓配置
         report_type: 报告类型
-        trading_calendar: 可选的交易日历 (审计 H5) → 启用停牌建模
+        trading_calendar: 可选的交易日历 → 启用停牌建模
 
     Returns:
         回测结果

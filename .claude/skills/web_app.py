@@ -13,7 +13,7 @@ Stock Analysis Web Application
 from __future__ import annotations
 
 # Streamlit 是可选依赖: 缺失时模块仍可被 import (供测试/工具链导入),
-# 但界面不可用 —— 如实降级, 不再以 ImportError 硬崩 (审计: 可选依赖降级路径零覆盖)
+# 但界面不可用 —— 如实降级, 不再以 ImportError 硬崩
 try:
     import streamlit as st
     STREAMLIT_AVAILABLE = True
@@ -29,7 +29,7 @@ import inspect
 import traceback
 
 # 模块路径: 基于 __file__, 不依赖启动时的工作目录
-# (修复审计 F-P1: 旧实现 sys.path.append('.') 与 '../..' 换目录即断)
+# (sys.path.append('.') 与 '../..' 换目录即断, 故用 __file__ 基准)
 _SKILLS_DIR = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.dirname(os.path.dirname(_SKILLS_DIR))
 for _p in (_SKILLS_DIR, _REPO_ROOT):
@@ -46,10 +46,10 @@ try:
     from backtest_framework import BacktestEngine, PositionConfig
     from portfolio_manager import PortfolioManager
     from realtime_quote import RealTimeQuoteAPI
-    # 统一信号契约 (审计 C #9): web 层消费 Signal, 不再各页面自拼信号字典
+    # 统一信号契约: web 层消费 Signal, 不在各页面自拼信号字典
     from core.signal import (ACTION_BUY, ACTION_HOLD, ACTION_SELL, Signal)
     from core.indicators import sma as _core_sma
-    # 交易日历 (审计 C-P1-12 遗留项: 停牌建模) — 本地指数/缓存, 不联网
+    # 交易日历 (停牌建模) — 本地指数/缓存, 不联网
     try:
         from core.trading_calendar import ensure_calendar
         ensure_calendar()
@@ -64,7 +64,7 @@ except ImportError:
 def render_import_error():
     """显式错误页: 模块导入失败时展示完整 traceback
 
-    修复审计 F-P1: 旧实现仅 print 一行 Warning 后静默降级,
+    此前实现仅 print 一行 Warning 后静默降级,
     5 个页面各自 st.error 一句无诊断价值的提示。
 
     streamlit 本身缺失时无界面可渲染 → 如实打到 stderr, 不假装成功。
@@ -159,7 +159,7 @@ def init_session_state():
     if 'watchlist' not in st.session_state:
         st.session_state.watchlist = ['600519', '000858', '002415']
 
-    # 优化参数下发状态 (E-P1 #19): None = 出厂投票制;
+    # 优化参数下发状态: None = 出厂投票制;
     # 加载 best_params.json 后 generator 换实例, 信号面全站跟随
     if 'optimized_params' not in st.session_state:
         st.session_state.optimized_params = None
@@ -233,7 +233,7 @@ def render_sidebar():
 
         st.divider()
 
-        # 优化参数下发 (审计 E-P1 #19 闭环: best_params.json → 信号层)
+        # 优化参数下发 (best_params.json → 信号层)
         # 加载后 st.session_state.generator 换实例 — 首页/分析页/信号图/
         # 回测多因子四个调用面零改动即跟随
         st.subheader("🎯 优化参数")
@@ -333,7 +333,7 @@ def render_dashboard():
         st.error("核心模块未加载，请检查依赖安装")
         return
 
-    # (审计 #18 S1: 旧版 4 个指标里 3 个硬编码假数据 —
+    # (旧版 4 个指标里 3 个硬编码假数据 —
     #  ¥1,000,000/+23.5%/信号5/收益+15.3% 凭空捏造;
     #  现全部来自 watchlist 真实信号 + 组合管理器真实持仓)
     signals = get_all_signals(st.session_state.watchlist)
@@ -601,7 +601,7 @@ def render_analysis():
         key="analysis_chart_type"
     )
 
-    # (审计 #19: 旧版在此内联重写 4 种 matplotlib 图表 95 行,
+    # (旧版在此内联重写 4 种 matplotlib 图表 95 行,
     #  与 chart_visualizer 完全重复且实例化后从未调用 —
     #  现全部委托 session_state.visualizer, 输出图片后 st.image 展示)
     viz = st.session_state.visualizer
@@ -632,7 +632,7 @@ def render_analysis():
             st.image(path, **st_fill_width(st.image))
 
         elif chart_type == "信号图":
-            # (审计 #20: 图表买卖点与回测引擎用同一 generate_signals 产出,
+            # (图表买卖点与回测引擎用同一 generate_signals 产出,
             #  int 0/1 信号列, 不再有独立阈值/映射口径)
             signals_df = st.session_state.generator.generate_signals(data)
             path = viz.plot_signals(data, signals_df, symbol=symbol)
@@ -811,7 +811,7 @@ def render_backtest():
                 equity_curve = result.get('equity_curve')
                 if equity_curve is not None and len(equity_curve) > 0:
                     if st.session_state.visualizer is not None:
-                        # (审计 #19: 委托 chart_visualizer, 替换内联 matplotlib)
+                        # (委托 chart_visualizer, 替换内联 matplotlib)
                         try:
                             eq_path = st.session_state.visualizer.plot_equity_curve(
                                 equity_curve, symbol=symbol)
@@ -943,7 +943,7 @@ def render_portfolio():
                 st.divider()
 
                 # 操作按钮
-                # (审计 #18 S4: 旧版三个按钮只弹占位提示, 无真实功能 —
+                # (旧版三个按钮只弹占位提示, 无真实功能 —
                 #  现接 PortfolioManager 真实 API: 等权再平衡建议 /
                 #  绩效指标 / 标准报告)
                 col1, col2, col3 = st.columns(3)
@@ -997,7 +997,7 @@ def render_portfolio():
 
 
 # =============================================================================
-# 历史验证页面 (审计 H3: 验证链结论的 web 出口)
+# 历史验证页面 (验证链结论的 web 出口)
 # =============================================================================
 
 def _load_validation_report(path: str) -> Optional[dict]:
@@ -1013,7 +1013,7 @@ def _load_validation_report(path: str) -> Optional[dict]:
 
 
 def render_validation():
-    """渲染历史验证页面 (审计 H3)
+    """渲染历史验证页面
 
     展示验证链的**口径自证**与结论 —— 结论必须带着"它成立的条件"一起
     呈现: 样本外与否 (参数拟合区间 vs 验证区间)、股票池口径与幸存者
@@ -1138,7 +1138,7 @@ def render_monitor():
         st.error("核心模块未加载，请检查依赖安装")
         return
 
-    # (审计 #18 S2/S3: 旧版整页是桩 — "开发中" + 硬编码指标 3/12/5/2 +
+    # (旧版整页是桩 — "开发中" + 硬编码指标 3/12/5/2 +
     #  3 条假监控列表 (600519/000858/002415 固定条件) —
     #  现接 realtime_quote 腾讯接口, 拉 watchlist 真实行情并按涨跌幅告警)
     watchlist = st.session_state.watchlist
@@ -1275,7 +1275,7 @@ def _load_stock_names() -> Dict[str, str]:
 
 
 def get_stock_name(symbol: str) -> str:
-    """获取股票名称 (审计 #18: 替换硬编码 10 只 → stock_list.csv 全量)"""
+    """获取股票名称 (stock_list.csv 全量)"""
     return _load_stock_names().get(str(symbol).zfill(6), symbol)
 
 
@@ -1302,7 +1302,7 @@ def get_stock_data(symbol: str, days: int = 120) -> Optional[pd.DataFrame]:
 
 
 def get_stock_signal(symbol: str) -> Signal:
-    """获取股票信号 (统一契约 Signal, 审计 C #9).
+    """获取股票信号 (统一契约 Signal).
 
     数据不可用时返回 HOLD 的空契约 (executable=True, 无阻断原因)。
     """
@@ -1345,7 +1345,7 @@ def main():
     # 配置页面
     setup_page_config()
 
-    # 导入失败 → 显式错误页 + 完整 traceback, 不再静默降级 (审计 F-P1)
+    # 导入失败 → 显式错误页 + 完整 traceback, 不静默降级
     if not MODULES_AVAILABLE:
         render_import_error()
         st.stop()

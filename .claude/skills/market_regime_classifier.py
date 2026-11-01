@@ -21,7 +21,7 @@ from js_runtime import js_guard
 
 
 class Regime(Enum):
-    """市场体制枚举 —— **取值集合的单一真相源** (审计 L11)。
+    """市场体制枚举 —— **取值集合的单一真相源**。
 
     注: 运行时体制一律以**字符串** (`Regime.BULL.value`) 流通 (体制序列、
     优化器的 `target_regime`、`multi_stock_backtester.regime` 都是字符串),
@@ -127,7 +127,7 @@ class MarketRegimeClassifier:
                     df = ak.stock_zh_index_daily(symbol=f"sh{index_code}")
 
             if df is not None and len(df) > 0:
-                # 标准化列名 + 按日期排序 (共享单一真相源, 审计 M19)
+                # 标准化列名 + 按日期排序 (共享单一真相源)
                 df = standardize_daily_frame(df, add_change=False)
 
                 # 过滤日期范围

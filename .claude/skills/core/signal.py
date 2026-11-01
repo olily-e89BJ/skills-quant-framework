@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""统一信号输出契约 (审计 C #9, 项 21 #9a).
+"""统一信号输出契约.
 
 各信号/选股模块的"出口形状"统一为 `Signal` dataclass: 下游因此知道
 **什么时候** (`signal_date`)、**能不能执行** (`executable`/`blocked_reasons`)、
@@ -9,7 +9,7 @@
 **不做静默归一化** (跨模块比较前必须自己选刻度)。
 
 `execute_at` 语义: 默认 `None` = 由执行层 (`execution_model`) 按 t+1 开盘规则决定
-—— 仓库暂无交易日历, 强行推算下一个交易日会造假; 调用方持有交易日历时可显式填入。
+—— 强行推算下一个交易日需要交易日历, 没有日历时不猜; 调用方持有交易日历时可显式填入。
 
 本模块只定义契约与转换工具, 不含任何打分/指标逻辑 (那些在各自产出模块)。
 """
@@ -119,9 +119,9 @@ def normalize_date(value) -> str:
 
 @dataclass(frozen=True)
 class Selection:
-    """统一选股结果契约 (L1 横截面选股层; 审计 C #9b, 项 21).
+    """统一选股结果契约 (横截面选股层).
 
-    与 `Signal` **分立** (用户决策): `Selection` 回答"池内哪些标的排名如何、
+    与 `Signal` **分立**: `Selection` 回答"池内哪些标的排名如何、
     是否入选"; `Signal` 回答"何时买卖、能否执行"。两者都带交易约束字段
     (executable/blocked_reasons/skipped_checks), 因此"选出来的票能不能买"
     在两个契约里是同一套语义。
@@ -129,7 +129,7 @@ class Selection:
     Attributes:
         symbol: 标的代码
         as_of: 选股基准日 (point-in-time); '' = 产出模块暂无 as-of 语义
-            (MFS 有真实公告日过滤; SS/LTS 为实盘实时筛选 — 审计 L10 待修,
+            (MFS 有真实公告日过滤; SS/LTS 为实盘实时筛选 —
             契约如实留空, 不伪造基准日)
         score: 综合分, 量纲见 `scale`
         scale: 分数刻度 (SCALE_ZSCORE / SCALE_SCORE)

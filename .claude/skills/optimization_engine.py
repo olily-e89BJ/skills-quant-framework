@@ -39,7 +39,7 @@ class IndicatorSystem:
     applicable_regimes: list        # 适用体制: ['BULL', 'EARLY_BULL']
     params: dict                    # 完整参数集
     fitness_scores: dict            # 各体制下的fitness {regime: fitness}
-    confidence: float               # clamp01(适应度), 见 confidence_from_fitness (审计 H2, 非统计校准概率)
+    confidence: float               # clamp01(适应度), 见 confidence_from_fitness (非统计校准概率)
     sample_count: int               # 支撑该结论的样本数
 
     # 性能统计
@@ -50,7 +50,7 @@ class IndicatorSystem:
     median_holding_days: float = 0.0
     num_trades: float = 0.0
 
-    # 样本外 (OOS) 指标 —— 审计 H1: 参数选择只用 IS 窗口, 这些数字
+    # 样本外 (OOS) 指标 —— 参数选择只用 IS 窗口, 这些数字
     # 来自**从未参与选择**的留出窗口, 是"这套参数能否外推"的唯一证据
     oos_available: bool = False
     oos_windows: int = 0
@@ -59,11 +59,11 @@ class IndicatorSystem:
     oos_median_sharpe: float = 0.0
     oos_median_max_drawdown: float = 0.0
 
-    # 稳健性/多重检验证据 —— 审计 H10: 试验次数 (参与"取最大"的评估次数)、
+    # 稳健性/多重检验证据 —— 试验次数 (参与"取最大"的评估次数)、
     # 随机基线分位数、Top-k 参数离散度、bootstrap CI。只报告, 不参与选择
     robustness: dict = field(default_factory=dict)
 
-    # 评估覆盖证据 —— 审计 M5: 逐股回测失败的股票不参与适应度 → 这套参数
+    # 评估覆盖证据 —— 逐股回测失败的股票不参与适应度 → 这套参数
     # 到底在多少只股票上被真正评估过 (失败既不可见也不受罚 = 偏差)
     n_stocks_total: int = 0
     n_stocks_evaluated: int = 0
@@ -96,7 +96,7 @@ class OptimizationResult:
 def split_is_oos(windows: list, oos_ratio: float) -> tuple:
     """按时间顺序把回测窗口切成 (IS 选择用, OOS 仅报告)。
 
-    审计 H1 (E-optimization-portfolio §3.1 第 1/2 条): 旧实现里
+    背景: 历史实现里
     walk_forward 的 train_days 只用于"跳过前 N 行", 训练段从未用于拟合,
     且 GA 在**全部**测试窗口上既评估又取最大 → "样本外"窗口实为样本内,
     选择偏差直接来自这里。
@@ -117,7 +117,7 @@ def split_is_oos(windows: list, oos_ratio: float) -> tuple:
 
 
 def aggregate_coverage(regime_coverage: dict) -> dict:
-    """跨体制聚合评估覆盖证据 (审计 M5)。
+    """跨体制聚合评估覆盖证据。
 
     稳健模式对每个体制各评估一遍 → 失败是**按体制**分别发生的, 汇总时
     求和 (总回测股次 / 总失败股次), 成功率按总量重算 (不是各体制成功率的
@@ -140,7 +140,7 @@ def aggregate_coverage(regime_coverage: dict) -> dict:
 
 
 def evaluation_coverage_fields(fitness_details: dict) -> dict:
-    """从 fitness_details 提取"评估覆盖"证据 (审计 M5)。
+    """从 fitness_details 提取"评估覆盖"证据。
 
     逐股回测失败 → 该股不参与适应度 → 参数组可能只在**更少样本**上被评估;
     这些字段让覆盖度**可见** (与 confidence/robustness 同款自证)。
@@ -157,7 +157,7 @@ def evaluation_coverage_fields(fitness_details: dict) -> dict:
 def oos_fields(fitness_details: dict) -> dict:
     """从 fitness_details 提取样本外指标字段 (构造 IndicatorSystem 用)。
 
-    审计 H1: IS 指标是"选择口径", OOS 指标是"验证口径" —— 两者必须分列,
+    IS 指标是"选择口径", OOS 指标是"验证口径" —— 两者必须分列,
     不能只报前者 (那正是旧实现的误导之处)。
     """
     oos = (fitness_details or {}).get('oos') or {}
@@ -174,13 +174,13 @@ def oos_fields(fitness_details: dict) -> dict:
 
 
 def confidence_from_fitness(fitness: float) -> float:
-    """适应度 → confidence (审计 H2)。
+    """适应度 → confidence。
 
     confidence **不是**统计校准的置信概率, 而是**适应度的 [0,1] 夹取值**
     —— 即 GA 实际最大化的目标值本身 (FitnessConfig 加权和, 来自真实
     回测窗口指标: 达标率/中位收益分/中位夏普分/回撤分, 权重和为 1)。
 
-    审计 H2: 旧实现是 4 处互不一致的硬编码常数 (0.7 / min(0.9, f*1.2) /
+    历史实现曾是 4 处互不一致的硬编码常数 (0.7 / min(0.9, f*1.2) /
     0.6 / 0.75), 其中全局/稳健/迭代路径的值与任何证据无关, 却被
     daily_signal_generator 当作同体制多系统的唯一挑选依据 = 编造的数
     参与决策。现统一为证据派生, 单一真相源, 四个阶段同口径。
@@ -213,18 +213,18 @@ class FitnessEvaluator:
         fitness_config : FitnessConfig or None
             适应度权重来源 (w_target_rate/w_return/w_sharpe/w_drawdown) —
             旧实现这4个权重硬编码于 _compute_fitness, 配置字段恒死参数;
-            另含 min_success_rate (审计 M5: 逐股回测失败的硬门槛)
+            另含 min_success_rate (逐股回测失败的硬门槛)
         walk_forward_config : WalkForwardConfig or None
             Walk-Forward 窗口 (train/test/step_days) — 旧实现硬编码于
-            evaluate() (审计 E-P1 接线: 配置成为真相源)
+            evaluate() (配置作为真相源)
 
-        注: 原 target_probability 参数已删 (审计 M2) —— 存入 self 后
+        注: 原 target_probability 参数已删 —— 存入 self 后
         _compute_fitness 从未使用; FitnessConfig 同步删除该字段。
         """
         cfg = fitness_config or FitnessConfig()
         self.backtester = backtester or VectorizedBacktester()
         self.walk_forward_config = walk_forward_config or WalkForwardConfig()
-        # 审计 M5: 逐股回测失败的硬门槛 (成功率低于此值 → 参数组不可用)
+        # 逐股回测失败的硬门槛 (成功率低于此值 → 参数组不可用)
         self.min_success_rate = float(getattr(cfg, 'min_success_rate', 0.5))
         self.target_return = cfg.target_return if target_return is None else target_return
         self.max_drawdown_limit = cfg.max_drawdown_limit if max_drawdown_limit is None else max_drawdown_limit
@@ -254,11 +254,11 @@ class FitnessEvaluator:
             如果指定，仅评估该体制时段的数据
         return_is_metrics : bool
             True 时 details 额外携带 'is_metrics' (IS 窗口的原始指标对象
-            列表) — 审计 H10 bootstrap 重采样用; GA 路径不传 (不进 details,
+            列表) — bootstrap 重采样用; GA 路径不传 (不进 details,
             零额外开销)。注: 失败路径 (无 IS 窗口) **不含** 'is_metrics'
             键 → 调用方如实标记不可用。
 
-        审计 M5: 逐股回测失败不再静默 (`except Exception: continue` →
+        逐股回测失败不再静默 (`except Exception: continue` →
         失败既不可见也不受罚 → 参数组可能只在更少样本上被评估)。现在逐股
         记账 (n_stocks_failed / success_rate / failures), 适应度按
         `success_rate` 打折, 成功率低于 `min_success_rate` 直接归零; 计数与
@@ -270,14 +270,14 @@ class FitnessEvaluator:
 
         Notes:
         -----
-        审计 H1: **适应度只由 IS (样本内选择) 窗口计算**; 末尾 oos_ratio 比例
+        **适应度只由 IS (样本内选择) 窗口计算**; 末尾 oos_ratio 比例
         的窗口留作 OOS (样本外), 其指标只进 details['oos'] 用于最终报告,
         **从不参与参数选择** —— 旧实现 GA 在全部窗口上既评估又取最大,
         "样本外"窗口实为样本内 (选择偏差)。
         """
         is_metrics = []
         oos_metrics = []
-        # 审计 M5: 逐股回测失败的记账 (旧实现 `except Exception: continue` →
+        # 逐股回测失败的记账 (`except Exception: continue` 曾静默吞掉 →
         # 失败既不可见也不受罚 → 参数组可能只在**更少样本**上被评估, 且
         # 崩溃型参数组因"幸存股票恰好表现好"而胜出)
         n_total = len(stock_data)
@@ -286,7 +286,7 @@ class FitnessEvaluator:
         n_failed_events = 0      # 失败事件总数 (一只股票可失败多个窗口)
         n_skipped = 0            # 体制数据不足 (不适用, 非失败)
         failures = []
-        # 审计 M4: 体制窗统计 (窗口数 / 因过短跳过 / 无交易跳过) ——
+        # 体制窗统计 (窗口数 / 因过短跳过 / 无交易跳过) ——
         # "这个体制到底测了多少东西"必须可见
         window_stats = {}
 
@@ -318,7 +318,7 @@ class FitnessEvaluator:
                         failures.extend(sub_failures)
                 else:
                     n_attempted += 1
-                    # Walk-Forward回测 (窗口来自 walk_forward_config, 审计 E-P1 接线)
+                    # Walk-Forward回测 (窗口来自 walk_forward_config)
                     wf = self.walk_forward_config
                     windows = self.backtester.walk_forward(
                         data, params, train_days=wf.train_days,
@@ -330,7 +330,7 @@ class FitnessEvaluator:
                 is_metrics.extend(is_windows)
                 oos_metrics.extend(oos_windows)
             except Exception as e:
-                # 审计 M5: 不再静默丢弃 —— 记账 (供惩罚与落盘)
+                # 不再静默丢弃 —— 记账 (供惩罚与落盘)
                 stock_failed = True
                 n_failed_events += 1
                 failures.append({'symbol': symbol,
@@ -355,7 +355,7 @@ class FitnessEvaluator:
 
         if not is_metrics:
             # 无 IS 窗口 → 无适应度 (旧实现返回 0.0, {}); 现在带上失败记账
-            # (审计 M5: 失败不能静默 —— 无证据本身就是结论的一部分)
+            # (失败不能静默 —— 无证据本身就是结论的一部分)
             coverage['evaluation_available'] = False
             coverage['fitness_before_penalty'] = 0.0
             coverage['penalty_factor'] = success_rate
@@ -365,12 +365,12 @@ class FitnessEvaluator:
         fitness, details = self._compute_fitness(is_metrics)
         details['is_windows'] = len(is_metrics)
         details['oos'] = self._summarize_oos(oos_metrics)
-        # 审计 H10: 逐窗口 IS 指标 (bootstrap 重采样用) — 只在显式要求时
+        # 逐窗口 IS 指标 (bootstrap 重采样用) — 只在显式要求时
         # 携带, GA 路径不传 → 零额外开销
         if return_is_metrics:
             details['is_metrics'] = is_metrics
 
-        # 审计 M5: 失败惩罚 —— 参数组只在更少样本上被评估时, 不得"不受罚"
+        # 失败惩罚 —— 参数组只在更少样本上被评估时, 不得"不受罚"
         coverage['evaluation_available'] = True
         details.update(coverage)
         details['fitness_before_penalty'] = fitness
@@ -391,7 +391,7 @@ class FitnessEvaluator:
     def _robust_combine(regime_fitnesses: dict) -> float:
         """稳健适应度 = 0.7 * min(各体制) + 0.3 * avg(各体制)。
 
-        审计 H10 配套: 从 evaluate_robust 闭包提炼 —— bootstrap 重采样
+        从 evaluate_robust 闭包提炼 —— bootstrap 重采样
         必须用与搜索**完全相同**的组合口径, 否则 CI 对应的不是被报告的
         那个 fitness (口径冒充)。
         """
@@ -457,11 +457,11 @@ class FitnessEvaluator:
         - 长窗口体制(BULL/BEAR/SIDEWAYS): 按连续窗口切割回测
         - 短窗口体制(CRASH/RECOVERY): 全量回测后按交易入口过滤
 
-        审计 M5: 返回 `(metrics_list, failures, stats)` —— 体制窗内的回测
+        返回 `(metrics_list, failures, stats)` —— 体制窗内的回测
         失败不再静默丢弃, 逐窗记账并向上冒泡 (旧实现
         `except Exception: continue`)。
 
-        审计 M4 (短体制窗口冷启动 + 短窗出场失效):
+        短体制窗口的两个坑 (冷启动 + 短窗出场失效):
         - ① 指标预热: 旧实现把窗口切片**单独**回测 → 指标只在窗口内计算 →
           `ma_slow` 可达 120 > 窗口长度时全 NaN → 信号恒 0 → **该窗测不出
           任何东西** (静默失效)。现按参数所需传入窗口前历史段 (账户仍从
@@ -513,7 +513,7 @@ class FitnessEvaluator:
             if len(window_data) < 15:
                 continue
 
-            # 审计 M4②: 窗口比最小持有期还短 → 出场规则在窗口内永不触发
+            # 窗口比最小持有期还短 → 出场规则在窗口内永不触发
             # → 该窗无法检验部署的那套策略 → 跳过并记账
             if len(window_data) <= min_holding:
                 stats['skipped_short'] += 1
@@ -521,7 +521,7 @@ class FitnessEvaluator:
 
             stats['n_windows'] += 1
 
-            # 审计 M4①: 传入窗口前历史段做指标预热 (账户仍从窗口首根空仓起步)
+            # 传入窗口前历史段做指标预热 (账户仍从窗口首根空仓起步)
             history = data.iloc[max(0, start - need):start]
 
             try:
@@ -532,7 +532,7 @@ class FitnessEvaluator:
                 else:
                     stats['skipped_no_trade'] += 1
             except Exception as e:
-                # 审计 M5: 记账而非静默 continue (失败数进入上层惩罚)
+                # 记账而非静默 continue (失败数进入上层惩罚)
                 failures.append({'error': type(e).__name__,
                                  'message': str(e)[:200],
                                  'window': [int(start), int(end)]})
@@ -550,11 +550,11 @@ class FitnessEvaluator:
         3. 仅保留入场时处于目标体制的交易
         4. 用过滤后的交易计算指标
 
-        审计 M5: 返回 `(metrics_list, failures, stats)` —— 整股回测失败不再
+        返回 `(metrics_list, failures, stats)` —— 整股回测失败不再
         静默返回空列表 (旧实现), 失败被记账并进入上层惩罚。
 
         注: 该路径在**全量历史**上回测 (只在入场日按体制过滤) → 指标预热与
-        最小持有期都不受窗口长度限制 (审计 M4 的两个坑只存在于连续窗口路径)。
+        最小持有期都不受窗口长度限制 (那两个坑只存在于连续窗口路径)。
         """
         stats = {'n_windows': 1, 'skipped_short': 0, 'skipped_no_trade': 0}
         try:
@@ -585,10 +585,10 @@ class FitnessEvaluator:
         return [], [], stats
 
     def _compute_metrics_from_trades(self, trades, data, params):
-        """从过滤后的交易列表计算 BacktestMetrics（审计 E-P1: 调用共享
+        """从过滤后的交易列表计算 BacktestMetrics（调用共享
         metrics_from_trades 统一口径, 消除与 vectorized_backtest 的重复块）。
 
-        修正审计 #15/#20 三处口径错误:
+        口径要点:
         - 年化分母: 取过滤后交易的暴露跨度 [首笔入场, 末笔出场], 不再用
           整只股票全历史 (短体制路径年化严重失真);
         - 最大回撤: 日频盯市净值 (与 B 引擎同构造), 不再用逐笔复利序列;
@@ -625,7 +625,7 @@ class FitnessEvaluator:
         fitness = (w_target_rate*达标率 + w_return*中位收益分
                    + w_sharpe*中位夏普分 + w_drawdown*回撤分) * 交易次数惩罚
 
-        权重来自 FitnessConfig (self.weights), 不再硬编码 (审计项 19)。
+        权重来自 FitnessConfig (self.weights)，不在调用点硬编码。
         """
         w = self.weights
         returns = [m.total_return for m in metrics_list]
@@ -746,7 +746,7 @@ class GeneticAlgorithm:
          convergence_gen: int, generations_run: int)
          convergence_gen = 最后一次显著改善的代号 (0-based);
          generations_run = 实际执行的代数 (提前收敛时 < max_generations,
-         审计 M3: 旧实现调用方记的是配置上限而非实际值)
+         调用方曾记的是配置上限而非实际值)
         """
         if rng is None:
             rng = np.random.default_rng()
@@ -810,7 +810,7 @@ class GeneticAlgorithm:
                 population, evaluate_fn, current_mutation, rng
             )
 
-        # E-P0-4: 最优解强制 repair + validate, 确保落盘参数合法
+        # 最优解强制 repair + validate, 确保落盘参数合法
         if best_individual is not None:
             best_individual.params = ParameterSpace.repair(best_individual.params)
             valid, violations = ParameterSpace.validate(best_individual.params)
@@ -823,13 +823,13 @@ class GeneticAlgorithm:
         """初始化种群"""
         population = []
 
-        # 加入种子参数 (E-P0-4: 种子也强制 repair)
+        # 加入种子参数 (种子也强制 repair)
         if seed_params:
             for params in seed_params:
                 ind = Individual(params=ParameterSpace.repair(copy.deepcopy(params)))
                 population.append(ind)
 
-        # 随机填充剩余 (E-P0-4: 独立采样约84%违反关系约束 → 采样后立即 repair)
+        # 随机填充剩余 (独立采样约84%违反关系约束 → 采样后立即 repair)
         while len(population) < self.population_size:
             params = ParameterSpace.repair(ParameterSpace.random_sample(rng))
             ind = Individual(params=params)
@@ -862,7 +862,7 @@ class GeneticAlgorithm:
                 child1_params = copy.deepcopy(parent1.params)
                 child2_params = copy.deepcopy(parent2.params)
 
-            # 变异 + repair (E-P0-4: 交叉/变异可能破坏关系约束,
+            # 变异 + repair (交叉/变异可能破坏关系约束,
             # ParameterSpace.repair 的 docstring 本就要求在此调用)
             child1_params = ParameterSpace.repair(
                 ParameterSpace.mutate(child1_params, mutation_rate, rng)
@@ -905,11 +905,11 @@ class OptimizationEngine:
         n_workers : int
             并行工作线程数
         seed : int or None
-            随机种子 (E-P0-3): 同 seed 同数据 → 结果逐位可复现。
+            随机种子: 同 seed 同数据 → 结果逐位可复现。
             各阶段(global/regime/robust/iterative)由 seed+阶段名派生
             独立子流, 与调用顺序无关; None 时保持非确定性。
         config : OptimizationConfig or None
-            显式优化配置 (审计 E-P1 影子配置接线)。提供时 config 作为
+            显式优化配置。提供时 config 作为
             ga/fitness/walk_forward/iterative_rounds 的真相源; 优先级:
             CLI 显式参数 (ga_params, 如 --pop/--gen) > config.* > 阶段分档
             默认。None 时全部走引擎内省默认 — 既有调用行为逐位不变。
@@ -923,7 +923,7 @@ class OptimizationEngine:
             walk_forward_config=config.walk_forward if config else None)
         self.n_workers = n_workers
         self.seed = seed
-        # 审计 E-P1 死维度接线 (P1-1): 优化器路径默认启用4 因子加权评分,
+        # 优化器路径默认启用 4 因子加权评分,
         # 使 parameter_space 中 w_trend/w_momentum/w_risk/w_performance/
         # score_buy_threshold/score_sell_threshold 六维真正影响 fitness;
         # config.use_weighted_scoring=False 可回退投票制旧基线。
@@ -936,7 +936,7 @@ class OptimizationEngine:
         self.regime_labels = {} # {symbol: pd.Series}
 
     def _eval_params(self, params: dict) -> dict:
-        """GA 个体参数 → fitness 评估参数 (审计 E-P1 死维度接线 P1-1)。
+        """GA 个体参数 → fitness 评估参数。
 
         注入 use_weighted_scoring 开关: True 时 _generate_signals 走
         4 因子加权评分 (score_*_threshold 触发), 参数空间 6 个评分维
@@ -945,7 +945,7 @@ class OptimizationEngine:
         return {**params, 'use_weighted_scoring': self._use_weighted_scoring}
 
     def _merge_ga_cfg(self, stage_cfg: dict, ga_params=None) -> dict:
-        """阶段 GA 默认 × config.ga × 显式参数 三级合并 (审计 E-P1 接线)。
+        """阶段 GA 默认 × config.ga × 显式参数 三级合并。
 
         优先级: ga_params (CLI --pop/--gen 显式) > config.ga (8 键单档基线,
         与 GeneticAlgorithm 形参同名同默认) > stage_cfg (阶段分档默认)。
@@ -1113,7 +1113,7 @@ class OptimizationEngine:
             'convergence_threshold': 8,
         }, ga_params)
 
-        # 评估函数 (计数 + top-k 记录, 审计 H10: track=False 供基线/bootstrap
+        # 评估函数 (计数 + top-k 记录; track=False 供基线/bootstrap
         # 调用 → 不计入搜索试验次数、不进 top-k 统计)
         evals = {'n': 0}
         topk = []
@@ -1146,7 +1146,7 @@ class OptimizationEngine:
         total_time = time.time() - start_time
         self._record_ga_run('global', ga_cfg, conv_gen, total_time, evals['n'],
                             generations_run=gens_run)
-        # 审计 H10: GA 结束后组装稳健性证据 (只报告, 不参与选择)
+        # GA 结束后组装稳健性证据 (只报告, 不参与选择)
         robustness = self._finalize_robustness(
             'global', evaluate, best, evals['n'], topk)
 
@@ -1157,7 +1157,7 @@ class OptimizationEngine:
             applicable_regimes=['BULL', 'BEAR', 'SIDEWAYS', 'CRASH', 'RECOVERY'],
             params=best.params,
             fitness_scores={'GLOBAL': best.fitness},
-            # 审计 H2: 旧值硬编码 0.7 (与证据无关) → 适应度夹取
+            # 旧值曾硬编码 0.7 (与证据无关) → 适应度夹取
             confidence=confidence_from_fitness(best.fitness),
             sample_count=best.fitness_details.get('sample_count', 0),
             median_return=best.fitness_details.get('median_return', 0),
@@ -1176,7 +1176,7 @@ class OptimizationEngine:
             best_individual=best,
             best_system=system,
             all_systems=[system],
-            generations_run=gens_run,  # 审计 M3: 实际代数, 非配置上限
+            generations_run=gens_run,  # 实际代数, 非配置上限
             total_time_sec=total_time,
             convergence_gen=conv_gen,
         )
@@ -1274,7 +1274,7 @@ class OptimizationEngine:
             total_time = time.time() - start_time
             self._record_ga_run(f'regime:{regime}', ga_cfg, conv_gen,
                                 total_time, evals['n'], generations_run=gens_run)
-            # 审计 H10: 稳健性证据 (只报告, 不参与选择)
+            # 稳健性证据 (只报告, 不参与选择)
             robustness = self._finalize_robustness(
                 f'regime:{regime}', evaluate, best, evals['n'], topk)
 
@@ -1284,7 +1284,7 @@ class OptimizationEngine:
                 applicable_regimes=[regime],
                 params=best.params,
                 fitness_scores={regime: best.fitness},
-                # 审计 H2: 旧值 min(0.9, f*1.2) 是对适应度的任意放大 → 原值夹取
+                # 旧值 min(0.9, f*1.2) 是对适应度的任意放大 → 原值夹取
                 confidence=confidence_from_fitness(best.fitness),
                 sample_count=best.fitness_details.get('sample_count', 0),
                 median_return=best.fitness_details.get('median_return', 0),
@@ -1303,7 +1303,7 @@ class OptimizationEngine:
                 best_individual=best,
                 best_system=system,
                 all_systems=[system],
-                generations_run=gens_run,  # 审计 M3: 实际代数, 非配置上限
+                generations_run=gens_run,  # 实际代数, 非配置上限
                 total_time_sec=total_time,
                 convergence_gen=conv_gen,
             )
@@ -1380,7 +1380,7 @@ class OptimizationEngine:
                 regime_fitnesses = {}
                 regime_oos = {}
                 regime_metrics = {}
-                # 审计 M5: 跨体制的失败记账 (各体制分别评估 → 失败数按体制求和)
+                # 跨体制的失败记账 (各体制分别评估 → 失败数按体制求和)
                 regime_coverage = {}
                 for regime in all_regimes:
                     fitness_r, details_r = self.evaluator.evaluate(
@@ -1391,7 +1391,7 @@ class OptimizationEngine:
                     # 仅记录有样本的体制
                     if details_r.get('sample_count', 0) > 0:
                         regime_fitnesses[regime] = fitness_r
-                        # 审计 H1: 各体制的样本外证据一并保留 (只报告, 不参与选择)
+                        # 各体制的样本外证据一并保留 (只报告, 不参与选择)
                         oos_block = details_r.get('oos')
                         if oos_block:
                             regime_oos[regime] = oos_block
@@ -1400,14 +1400,14 @@ class OptimizationEngine:
                                 details_r.get('is_metrics') or [])
 
                 if not regime_fitnesses:
-                    # 审计 M5: 全体制无样本 → 失败记账仍须可见 (不静默)
+                    # 全体制无样本 → 失败记账仍须可见 (不静默)
                     fitness, details = 0.0, {
                         **aggregate_coverage(regime_coverage),
                         'evaluation_available': False,
                         'regime_coverage': regime_coverage,
                     }
                 else:
-                    # 稳健适应度 = 0.7*最差体制 + 0.3*平均 (H10: 提炼为
+                    # 稳健适应度 = 0.7*最差体制 + 0.3*平均 (提炼为
                     # _robust_combine, bootstrap 重采样走同一口径)
                     fitness = self.evaluator._robust_combine(regime_fitnesses)
                     details = {
@@ -1418,15 +1418,15 @@ class OptimizationEngine:
                         'regimes_used': list(regime_fitnesses.keys()),
                         'regimes_skipped': [r for r in all_regimes
                                             if r not in regime_fitnesses],
-                        # 审计 H1: 跨体制汇总的样本外证据 (IS/OOS 分列)
+                        # 跨体制汇总的样本外证据 (IS/OOS 分列)
                         'regime_oos': regime_oos,
-                        # 审计 M5: 跨体制聚合的失败/覆盖记账
+                        # 跨体制聚合的失败/覆盖记账
                         **aggregate_coverage(regime_coverage),
                         'regime_coverage': regime_coverage,
                     }
-                    # H1 遗留 bug 修复: 原写 self._aggregate_oos, 但该方法在
+                    # 历史坑: 曾误写 self._aggregate_oos, 但该方法在
                     # FitnessEvaluator 上 (闭包内 self=Engine → 有体制标签时
-                    # 稳健模式必 AttributeError; H1 测试仅源码级, 未跑行为路径)
+                    # 稳健模式必 AttributeError)
                     details['oos'] = self.evaluator._aggregate_oos(
                         list(regime_oos.values()))
                     if want_metrics:
@@ -1445,7 +1445,7 @@ class OptimizationEngine:
         total_time = time.time() - start_time
         self._record_ga_run('robust', ga_cfg, conv_gen, total_time, evals['n'],
                             generations_run=gens_run)
-        # 审计 H10: 稳健性证据 (只报告, 不参与选择)
+        # 稳健性证据 (只报告, 不参与选择)
         robustness = self._finalize_robustness(
             'robust', evaluate_robust, best, evals['n'], topk)
 
@@ -1464,7 +1464,7 @@ class OptimizationEngine:
             applicable_regimes=regimes_used if regimes_used else all_regimes,
             params=best.params,
             fitness_scores=regime_scores,
-            # 审计 H2: 旧值硬编码 0.6 (与证据无关) → 适应度夹取 (各体制
+            # 旧值曾硬编码 0.6 (与证据无关) → 适应度夹取 (各体制
             # fitness 的稳健组合, 见 evaluate_robust)
             confidence=confidence_from_fitness(best.fitness),
             sample_count=best.fitness_details.get('sample_count', 0),
@@ -1484,7 +1484,7 @@ class OptimizationEngine:
             best_individual=best,
             best_system=system,
             all_systems=[system],
-            generations_run=gens_run,  # 审计 M3: 实际代数, 非配置上限
+            generations_run=gens_run,  # 实际代数, 非配置上限
             total_time_sec=total_time,
             convergence_gen=conv_gen,
         )
@@ -1524,7 +1524,7 @@ class OptimizationEngine:
         seed_params = None
         # 单条流贯穿各轮 (轮次顺序固定 → 可复现)
         rng = self._stage_rng('iterative')
-        # 审计 H10: 跨轮累计 —— 最终参数经全部轮次演化, 每一轮的评估都
+        # 跨轮累计 —— 最终参数经全部轮次演化, 每一轮的评估都
         # 参与了选择 → 试验次数/top-k 取全程 (非仅末轮)
         cum_evals = 0
         cum_topk = []
@@ -1575,7 +1575,7 @@ class OptimizationEngine:
                 'best_params': best.params,
                 'best_details': best.fitness_details,
                 'convergence_gen': conv_gen,
-                'generations_run': gens_run,  # 审计 M3: 实际代数
+                'generations_run': gens_run,  # 实际代数
                 'time_sec': total_time,
             }
             all_round_results.append(result)
@@ -1591,7 +1591,7 @@ class OptimizationEngine:
         # 构建最终指标体系
         if all_round_results:
             final = all_round_results[-1]
-            # 审计 H10: 稳健性证据 (试验次数=各轮之和; 基线/bootstrap 走
+            # 稳健性证据 (试验次数=各轮之和; 基线/bootstrap 走
             # 末轮评估闭包 — 同一适应度函数)
             robustness = self._finalize_robustness(
                 'iterative', evaluate,
@@ -1604,7 +1604,7 @@ class OptimizationEngine:
                 applicable_regimes=['BULL', 'BEAR', 'SIDEWAYS', 'CRASH', 'RECOVERY'],
                 params=final['best_params'],
                 fitness_scores={'GLOBAL': final['best_fitness']},
-                # 审计 H2: 旧值硬编码 0.75 (与证据无关) → 适应度夹取
+                # 旧值曾硬编码 0.75 (与证据无关) → 适应度夹取
                 confidence=confidence_from_fitness(final['best_fitness']),
                 sample_count=final['best_details'].get('sample_count', 0),
                 median_return=final['best_details'].get('median_return', 0),
@@ -1626,7 +1626,7 @@ class OptimizationEngine:
                 ),
                 best_system=system,
                 all_systems=[system],
-                # 审计 M3: 各轮实际代数之和 (旧实现误用 convergence_gen 求和 —
+                # 各轮实际代数之和 (曾误用 convergence_gen 求和 —
                 # 那是"最后改善代号", 与"跑了几代"是两回事)
                 generations_run=sum(r.get('generations_run', 0)
                                     for r in all_round_results),
@@ -1638,7 +1638,7 @@ class OptimizationEngine:
         return all_round_results
 
     def _stage_rng(self, stage: str) -> np.random.Generator:
-        """按阶段派生独立可复现随机流 (E-P0-3): seed+阶段名 → 子流"""
+        """按阶段派生独立可复现随机流: seed+阶段名 → 子流"""
         if self.seed is None:
             return np.random.default_rng()
         return np.random.default_rng([int(self.seed), zlib.crc32(stage.encode())])
@@ -1651,9 +1651,9 @@ class OptimizationEngine:
 
     def _record_ga_run(self, stage, ga_cfg, conv_gen, time_sec, n_evals,
                        generations_run=None):
-        """记录一次GA运行的元数据 (save_results 落盘 — E-P0-3)
+        """记录一次GA运行的元数据 (save_results 落盘)
 
-        generations_run: 实际执行代数 (审计 M3; 与 max_generations 配置上限
+        generations_run: 实际执行代数 (与 max_generations 配置上限
         区分 — 提前收敛时两者不等)
         """
         self._ga_runs.append({
@@ -1668,10 +1668,10 @@ class OptimizationEngine:
             'time_sec': round(time_sec, 3),
         })
 
-    # ==================== 稳健性/多重检验证据 (审计 H10) ====================
+    # ==================== 稳健性/多重检验证据 ====================
 
     def _robustness_cfg(self) -> dict:
-        """稳健性证据采样规模: 引擎默认 < config.robustness (审计 H10)"""
+        """稳健性证据采样规模: 引擎默认 < config.robustness"""
         defaults = {'n_baseline_samples': 100, 'top_k': 10, 'n_bootstrap': 500}
         rc = (getattr(self.config, 'robustness', None)
               if self.config is not None else None)
@@ -1685,7 +1685,7 @@ class OptimizationEngine:
 
     @staticmethod
     def _top_k_dispersion(topk_entries, k):
-        """Top-k 已评估参数的逐维离散度 (审计 H10 ③)。
+        """Top-k 已评估参数的逐维离散度 (③)。
 
         基于**全部被评估过的**参数 (非仅末代种群) 按 fitness 取前 k:
         - range/std 尖峰 → 最优区狭窄, 对参数抖动敏感 (过拟合嫌疑);
@@ -1720,12 +1720,12 @@ class OptimizationEngine:
         }
 
     def _random_baseline(self, stage, evaluate_fn, n_samples, best_fitness):
-        """随机参数基线 (审计 H10 ②): 回答"最优 fitness 相对随机乱猜有多罕见"。
+        """随机参数基线 (②): 回答"最优 fitness 相对随机乱猜有多罕见"。
 
-        - 走与搜索**完全相同**的评估闭包 (同一 IS 口径, 不触碰 OOS — H1
+        - 走与搜索**完全相同**的评估闭包 (同一 IS 口径, 不触碰 OOS —
           隔离不受影响), 以 track=False 调用 → 不计入搜索试验次数;
         - 独立 RNG 子流 (stage:baseline), 与 GA 主流隔离 → 基线的开关/
-          规模不影响搜索结果 (E-P0-3 可复现性);
+          规模不影响搜索结果 (可复现性);
         - n_samples=0 → 如实标记 unavailable, 不假装有基线。
         """
         if n_samples <= 0:
@@ -1752,7 +1752,7 @@ class OptimizationEngine:
         }
 
     def _bootstrap_fitness_ci(self, stage, evaluate_fn, best_params, n_boot):
-        """最优参数的适应度 bootstrap 95% CI (审计 H10 ④)。
+        """最优参数的适应度 bootstrap 95% CI (④)。
 
         重采样对象 = 选择所用的 **IS 窗口指标** (与适应度同源):
         - 普通阶段: 合并重采样 IS 窗口;
@@ -1812,7 +1812,7 @@ class OptimizationEngine:
 
     def _finalize_robustness(self, stage, evaluate_fn, best, n_evals,
                              topk_entries):
-        """GA 结束后组装稳健性证据块 (审计 H10) — 只报告, 不参与选择。
+        """GA 结束后组装稳健性证据块 — 只报告, 不参与选择。
 
         四类证据:
         - n_selection_evaluations: 参与"取最大"的评估次数 (多重比较规模;
@@ -1834,7 +1834,7 @@ class OptimizationEngine:
 
     @staticmethod
     def _param_space_signature() -> dict:
-        """参数空间指纹 (版本): 个数+名称+边界/默认值摘要 — 落盘审计用"""
+        """参数空间指纹 (版本): 个数+名称+边界/默认值摘要 — 落盘追溯用"""
         names = ParameterSpace.get_param_names()
         defaults = ParameterSpace.get_defaults()
         digest = hashlib.sha256(
@@ -1883,7 +1883,7 @@ class OptimizationEngine:
         print(f"  中位夏普: {system.median_sharpe:.2f}")
         print(f"  中位最大回撤: {system.median_max_drawdown:.1f}%")
         print(f"  平均持有天数: {system.median_holding_days:.0f}")
-        # 审计 H1: IS (选择口径) 与 OOS (验证口径) 分列 —— 只报 IS 等于误导
+        # IS (选择口径) 与 OOS (验证口径) 分列 —— 只报 IS 等于误导
         if system.oos_available:
             print(f"  [样本外 OOS] {system.oos_windows} 窗 | "
                   f"适应度 {system.oos_fitness:.4f} | "
@@ -1892,7 +1892,7 @@ class OptimizationEngine:
                   f"中位回撤 {system.oos_median_max_drawdown:.1f}%")
         else:
             print("  [样本外 OOS] 不可用 (窗口数不足, 无法划分留出段)")
-        # 审计 M5: 评估覆盖 (逐股回测失败的股票不参与适应度)
+        # 评估覆盖 (逐股回测失败的股票不参与适应度)
         if system.n_stocks_evaluated:
             cov = (f"评估 {system.n_stocks_evaluated}/{system.n_stocks_total} 只"
                    f" | 失败 {system.n_stocks_failed} 只"
@@ -1900,7 +1900,7 @@ class OptimizationEngine:
             print(f"  [评估覆盖] {cov}")
         else:
             print("  [评估覆盖] 不可用 (无股票被成功评估)")
-        # 审计 H10: 多重检验/稳健性证据 (只报告, 不参与选择)
+        # 多重检验/稳健性证据 (只报告, 不参与选择)
         rb = getattr(system, 'robustness', None) or {}
         if rb:
             print(f"  [稳健性证据] 选择评估 {rb.get('n_selection_evaluations', 0)} 次 "
@@ -1945,7 +1945,7 @@ class OptimizationEngine:
         return systems
 
     def save_results(self, filepath):
-        """保存优化结果 (含 seed/适应度权重/参数空间指纹/数据起止/GA运行 — E-P0-3)"""
+        """保存优化结果 (含 seed/适应度权重/参数空间指纹/数据起止/GA运行)"""
         # 数据起止日
         data_start = data_end = None
         for df in self.stock_data.values():
@@ -1961,7 +1961,7 @@ class OptimizationEngine:
             'config': ({'name': self.config.name, 'mode': self.config.mode,
                         'version': self.config.version}
                        if self.config is not None else None),
-            # 审计 E-P1 #19 闭环: 记录本次优化的信号引擎模式,
+            # 记录本次优化的信号引擎模式,
             # optimized_params.load_optimized_params 据此下发
             'use_weighted_scoring': self._use_weighted_scoring,
             'n_stocks': len(self.stock_data),
@@ -1970,17 +1970,17 @@ class OptimizationEngine:
             'fitness_weights': dict(self.evaluator.weights),
             'param_space': self._param_space_signature(),
             'ga_runs': list(self._ga_runs),
-            # 审计 H10: 全部阶段参与"取最大"的评估次数合计 (多重比较规模;
+            # 全部阶段参与"取最大"的评估次数合计 (多重比较规模;
             # 基线/bootstrap 以 track=False 调用, 不计入)
             'n_evaluations_total': int(sum(r.get('n_evals') or 0
                                            for r in self._ga_runs)),
-            # 审计 H1: 落盘记录样本外隔离策略 (末尾窗口留出, 选择不参与)
+            # 落盘记录样本外隔离策略 (末尾窗口留出, 选择不参与)
             'oos_policy': {
                 'ratio': self.evaluator.walk_forward_config.oos_ratio,
                 'note': ('末尾比例的 walk-forward 窗口留作样本外 (OOS), '
                          '参数选择只用 IS 窗口; OOS 指标见 systems[].oos'),
             },
-            # 审计 H10: 稳健性证据口径 (试验次数/随机基线/Top-k/ bootstrap)
+            # 稳健性证据口径 (试验次数/随机基线/Top-k/ bootstrap)
             'robustness_policy': {
                 **self._robustness_cfg(),
                 'note': ('随机基线/Top-k 离散/bootstrap CI 只报告, 不参与'
@@ -1988,7 +1988,7 @@ class OptimizationEngine:
                          '试验次数 = 参与取最大的评估次数; bootstrap 回答'
                          '"窗口抽样噪声", 不能替代 OOS 外推证据'),
             },
-            # 审计 M5: 逐股回测失败的口径 (计数 + 惩罚规则)
+            # 逐股回测失败的口径 (计数 + 惩罚规则)
             'failure_policy': {
                 'min_success_rate': float(getattr(
                     self.evaluator, 'min_success_rate', 0.5)),
@@ -2000,7 +2000,7 @@ class OptimizationEngine:
                          '体制数据不足(不适用)不计失败, 见 '
                          'systems[].evaluation'),
             },
-            # 审计 H2: confidence 口径 (证据派生, 非统计校准概率)
+            # confidence 口径 (证据派生, 非统计校准概率)
             'confidence_policy': {
                 'formula': 'clamp01(fitness)',
                 'note': ('confidence = 适应度的 [0,1] 夹取值 (GA 实际最大化的'
@@ -2027,7 +2027,7 @@ class OptimizationEngine:
                 'median_holding_days': system.median_holding_days,
                 'num_trades': system.num_trades,
                 'sample_count': system.sample_count,
-                # 审计 H1: IS (选择口径) 与 OOS (验证口径) 分列落盘
+                # IS (选择口径) 与 OOS (验证口径) 分列落盘
                 'oos': {
                     'available': system.oos_available,
                     'windows': system.oos_windows,
@@ -2036,9 +2036,9 @@ class OptimizationEngine:
                     'median_sharpe': system.oos_median_sharpe,
                     'median_max_drawdown': system.oos_median_max_drawdown,
                 },
-                # 审计 H10: 稳健性/多重检验证据 (只报告, 不参与选择)
+                # 稳健性/多重检验证据 (只报告, 不参与选择)
                 'robustness': system.robustness or {},
-                # 审计 M5: 评估覆盖证据 (在多少只股票上真正评估过)
+                # 评估覆盖证据 (在多少只股票上真正评估过)
                 'evaluation': {
                     'n_stocks_total': system.n_stocks_total,
                     'n_stocks_evaluated': system.n_stocks_evaluated,
@@ -2076,7 +2076,7 @@ class OptimizationEngine:
                 median_holding_days=sys_data.get('median_holding_days', 0),
                 num_trades=sys_data.get('num_trades', 0),
                 **(oos_fields({'oos': sys_data.get('oos') or {}})),
-                # 审计 H10: 稳健性证据读回 (旧 JSON 无键 → 空 dict, 如实)
+                # 稳健性证据读回 (旧 JSON 无键 → 空 dict, 如实)
                 robustness=sys_data.get('robustness') or {},
             )
 
@@ -2164,14 +2164,14 @@ def main(argv=None):
     p_iter.add_argument('--save', default='stock_data/optimization_result.json',
                         help='保存路径')
 
-    # run: 按配置文件运行 (config-first, 审计 E-P1 接线)
+    # run: 按配置文件运行 (config-first)
     p_run = subparsers.add_parser(
         'run', help='按 OptimizationConfig 的 mode/数据/GA/迭代轮次完整运行')
     p_run.add_argument('--save', default='stock_data/optimization_result.json',
                        help='保存路径')
 
-    # E-P0-3: 所有子命令支持 --seed (默认42 → 命令行运行默认可复现);
-    # E-P1: 所有子命令支持 --config (config 为 ga/fitness/walk_forward/
+    # 所有子命令支持 --seed (默认42 → 命令行运行默认可复现);
+    # 所有子命令支持 --config (config 为 ga/fitness/walk_forward/
     # iterative_rounds 真相源; 子命令 > config.mode, run 子命令除外)
     for _p in (p_global, p_regime, p_robust, p_full, p_iter, p_run):
         _p.add_argument('--seed', type=int, default=42,

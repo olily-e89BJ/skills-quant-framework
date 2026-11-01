@@ -5,7 +5,7 @@
 实时判断大盘态势 → 选择对应的指标体系 → 用该体系的参数计算指标 →
 生成买卖信号 → 评分排名 → 输出推荐。
 
-内层信号打分已并入 signal_generator (项 21 合并): 本模块只保留
+内层信号打分已并入 signal_generator: 本模块只保留
 "体制检测 + 参数体系 + 批量日报 + manifest" 外壳, 打分口径与
 signal_generator 完全一致 (单一真相源)。
 
@@ -57,14 +57,14 @@ class StockSignal:
     atr_pct: float             # ATR占价格百分比
     distance_to_support: float # 距支撑位百分比
     distance_to_resistance: float # 距压力位百分比
-    # 交易约束前置检查 (审计 C-P1-12): False = 停牌/涨跌停/流动性阻断
+    # 交易约束前置检查: False = 停牌/涨跌停/流动性阻断
     executable: bool = True
     blocked_reasons: list = field(default_factory=list)
     skipped_checks: list = field(default_factory=list)
 
     def to_signal(self, signal_date=None, execute_at=None,
                   target_weight=None):
-        """→ 统一契约 Signal (审计 C #9 / 项 21 #9a).
+        """→ 统一契约 Signal.
 
         Args:
             signal_date: 信号日期; None = 由调用方给 (日报用报告日期)
@@ -80,7 +80,7 @@ class StockSignal:
 
 def to_signal(stock_signal, signal_date=None, execute_at=None,
               target_weight=None):
-    """StockSignal (或同形对象) → 统一契约 Signal (审计 C #9).
+    """StockSignal (或同形对象) → 统一契约 Signal.
 
     鸭子类型读取 (缺字段用默认值), 因此测试桩/历史结构也能安全转换。
     """
@@ -140,7 +140,7 @@ class DailyReport:
     signals: list              # list[StockSignal]
     regime_switch_alert: str   # 体制切换预警
     timestamp: str
-    # 统一契约信号 (审计 C #9): 与 signals 同源, 供下游/落盘直接消费
+    # 统一契约信号: 与 signals 同源, 供下游/落盘直接消费
     contract_signals: list = field(default_factory=list)
 
 
@@ -162,7 +162,7 @@ def compute_indicators(data: pd.DataFrame, params: dict) -> pd.DataFrame:
     pd.DataFrame : 添加了技术指标的DataFrame
     """
     df = data.copy()
-    # 共享指标引擎 (审计 #10): 公式唯一来源 core.indicators
+    # 共享指标引擎: 公式唯一来源 core.indicators
     eng = IndicatorEngine(df)
 
     # 移动平均线
@@ -346,7 +346,7 @@ class DailySignalGenerator:
         with open(filepath, 'r', encoding='utf-8') as f:
             data = json.load(f)
 
-        # 评分模式 (E-P1 #19): manifest 顶层 use_weighted_scoring 决定日报
+        # 评分模式: manifest 顶层 use_weighted_scoring 决定日报
         # 用加权评分还是投票制; 缺键 → False (旧优化文件保持投票制口径)
         use_weighted = bool(data.get('use_weighted_scoring', False))
 
@@ -359,7 +359,7 @@ class DailySignalGenerator:
                 if regime not in self.systems:
                     self.systems[regime] = sys_data
                 else:
-                    # 审计 H2: 同体制多系统按 confidence 挑选 —— 新 manifest
+                    # 同体制多系统按 confidence 挑选 —— 新 manifest
                     # 中 confidence = clamp01(适应度) (证据派生, 见
                     # optimization_engine.confidence_from_fitness); 旧 manifest
                     # 的硬编码值按原样读取 (历史数据不改写)。局限: 不同系统
@@ -390,7 +390,7 @@ class DailySignalGenerator:
         str : 当前体制 "BULL" / "BEAR" / "SIDEWAYS" / "CRASH" / "RECOVERY"
         """
         if index_data is None:
-            # 尝试从缓存加载沪深300 (指数命名空间, 审计 M12: 不读个股命名空间)
+            # 尝试从缓存加载沪深300 (指数命名空间: 不读个股命名空间)
             index_data = self.data_manager.load_index('000300')
             if len(index_data) == 0:
                 # 尝试加载上证指数
@@ -401,7 +401,7 @@ class DailySignalGenerator:
             self._current_regime = 'SIDEWAYS'
             return 'SIDEWAYS'
 
-        # 顺带把指数行情转成交易日历 (审计 C-P1-12 遗留项: 停牌建模) —
+        # 顺带把指数行情转成交易日历 (停牌建模) —
         # 指数每交易日有行 → 交易日集合; 供 trade_constraints 判定真停牌。
         # 失败不影响体制判定 (日历缺失时上层如实记 skipped_checks)。
         # data_dir 必须跟随本实例: 此前用默认值会把日历写死到 CWD 的
@@ -508,11 +508,11 @@ class DailySignalGenerator:
 
         change_pct = (close / prev['收盘'] - 1) * 100 if prev['收盘'] > 0 else 0
 
-        # 审计 C-P1-12: 前置可执行性检查 (方向按信号取, HOLD 双向)
+        # 前置可执行性检查 (方向按信号取, HOLD 双向)
         side = {'BUY': 'buy', 'SELL': 'sell'}.get(sig_result['signal'], 'both')
         constraint = trade_constraints.check_last_bar(
             data, code=symbol, side=side)
-        # 审计 C #9 收口: 约束字段统一装配 (不再各模块手拼)
+        # 约束字段统一装配 (不在各模块手拼)
         cfields = constraint.as_signal_fields()
 
         return StockSignal(
@@ -554,7 +554,7 @@ class DailySignalGenerator:
         n_stocks : int
             分析股票数 (推荐展示条数由 format_report 控制)
         seed : int or None
-            随机抽样种子 (审计 C-P1-15: 传入即可复现同一股票池)
+            随机抽样种子 (传入即可复现同一股票池)
 
         Returns:
         --------
@@ -570,7 +570,7 @@ class DailySignalGenerator:
         print(f"[INFO] 当前大盘态势: {regime_cn} ({regime})")
         print(f"[INFO] 使用指标体系: {self.get_system_name_for_regime(regime)}")
 
-        # 获取股票池 (审计 C-P1-15: 旧 random.sample 无种子 → 不可复现)
+        # 获取股票池 (带种子的 random.sample → 可复现)
         if symbols is None:
             symbols = self.data_manager.get_universe(min_rows=2000)
             if len(symbols) > n_stocks:
@@ -591,13 +591,13 @@ class DailySignalGenerator:
         # 按信号强度排序
         signals.sort(key=lambda s: abs(s.signal_strength), reverse=True)
 
-        # 审计 C-P1-12: 不可执行信号不进推荐列表 (total_analyzed 仍记分析数)
+        # 不可执行信号不进推荐列表 (total_analyzed 仍记分析数)
         analyzed_count = len(signals)
         executable_signals = [
             s for s in signals if getattr(s, 'executable', True)]
         blocked_n = analyzed_count - len(executable_signals)
         if blocked_n:
-            print(f"[INFO] 交易约束过滤 (C-P1-12): {blocked_n} 只因"
+            print(f"[INFO] 交易约束过滤: {blocked_n} 只因"
                   f"停牌/涨跌停/流动性被剔除")
         signals = executable_signals
 
@@ -615,7 +615,7 @@ class DailySignalGenerator:
             signals=signals,
             regime_switch_alert=alert,
             timestamp=datetime.now().isoformat(),
-            # 统一契约信号 (审计 C #9): 与 signals 同源派生, 供下游/落盘消费
+            # 统一契约信号: 与 signals 同源派生, 供下游/落盘消费
             contract_signals=[to_signal(s, signal_date=report_date)
                               for s in signals],
         )
@@ -625,7 +625,7 @@ class DailySignalGenerator:
     def save_manifest(self, filepath: str, report: DailyReport = None,
                       seed: int = None) -> bool:
         """
-        落盘运行清单 (审计 C-P1-15): 时间戳 / git sha / 种子 / 数据目录 /
+        落盘运行清单: 时间戳 / git sha / 种子 / 数据目录 /
         优化结果文件 / 体制 / 该体制实际使用的参数 — 让任一推荐结果可事后复现
 
         Args:
@@ -785,7 +785,7 @@ def main():
     parser.add_argument('--top', type=int, default=10,
                        help='推荐TOP N')
     parser.add_argument('--seed', type=int, default=None,
-                       help='随机抽样种子 (可复现股票池, 审计 C-P1-15)')
+                       help='随机抽样种子 (可复现股票池)')
     parser.add_argument('--manifest',
                        help='运行清单JSON输出路径 (时间戳/git sha/种子/参数)')
     parser.add_argument('--output', help='输出文件路径')
@@ -809,7 +809,7 @@ def main():
         seed=args.seed,
     )
 
-    # 运行清单 (审计 C-P1-15)
+    # 运行清单
     if args.manifest:
         generator.save_manifest(args.manifest, report=report, seed=args.seed)
         print(f"[INFO] 运行清单已写入: {args.manifest}")

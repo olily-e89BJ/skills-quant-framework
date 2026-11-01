@@ -599,7 +599,7 @@ class PricePatterns:
         is_consolidating = PricePatterns.detect_consolidation(df)
         breakout = PricePatterns.detect_breakout(df)
 
-        # 审计 B-P2: vs_* 必须基于"价格下方最近支撑 / 上方最近压力"。
+        # vs_* 必须基于"价格下方最近支撑 / 上方最近压力"。
         # 旧实现直接取 support[0](最高支撑)/resistance[0](最低压力), 当这些
         # 水平在价格错误一侧时产生荒谬值 (实测 vs_resistance = -30.9%)。
         price = float(df['收盘'].iloc[-1])

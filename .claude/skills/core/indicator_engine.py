@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
-"""共享技术指标引擎（审计路线图项 21 / 审计 C #10）。
+"""共享技术指标引擎.
 
-背景: 收敛前全仓有 11 处独立 MACD 实现、8 处 KDJ、6 处 BOLL，且同名列
-（K/D/J、MACD/MACD_Hist、BB_Middle）口径分裂——`reversal_*` 用
-`ewm(adjust=True)`，其余 10+ 站点用 `adjust=False`（递归 EMA），同名不同值。
+背景: 同名指标列（K/D/J、MACD/MACD_Hist、BB_Middle 等）若各模块各自实现,
+很容易出现口径分裂 (如 EMA 用 adjust=True 还是 adjust=False) —— 同名不同值。
 
 本模块提供两层:
 1. `core/indicators.py` — 纯函数层（数值真相源，bitwise 唯一实现）。

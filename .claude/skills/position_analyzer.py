@@ -24,7 +24,7 @@ class PositionAnalyzer:
             fetcher: StockDataFetcher实例，如果为None则创建新实例
         """
         self.fetcher = fetcher if fetcher else StockDataFetcher()
-        # 上次评分的"指标不可用"明细 (审计 C2: 数据不足 ≠ 技术面弱)
+        # 上次评分的"指标不可用"明细 (数据不足 ≠ 技术面弱)
         self._last_score_unavailable = []
 
     def get_stock_data(self, symbol, days=120, adjust=''):
@@ -53,7 +53,7 @@ class PositionAnalyzer:
             print(f"[WARN] {symbol} 数据不足60根 ({len(data)}根), 无法分析")
             return None
 
-        # 计算技术指标（共享引擎, 审计 #10）
+        # 计算技术指标（共享引擎）
         eng = IndicatorEngine(data)
         close = data['收盘']
 
@@ -85,7 +85,7 @@ class PositionAnalyzer:
         data['TR'] = eng.true_range()
         data['ATR'] = eng.atr(14)
 
-        # 涨跌幅 (以收盘口径无条件重算; 共享单一真相源, 审计 M19)
+        # 涨跌幅 (以收盘口径无条件重算; 共享单一真相源)
         data = ensure_change_pct(data, overwrite=True)
 
         return data
@@ -95,7 +95,7 @@ class PositionAnalyzer:
         """
         分析持仓
 
-        信号口径 (审计 B10/L4): 技术信号/评分/建议均为 **advisory** ——
+        信号口径: 技术信号/评分/建议均为 **advisory** ——
         基于最新 bar 收盘成立, 最早次一交易日开盘执行 (t+1, 与
         execution_model 成交规则一致), 非可成交指令。
 
@@ -131,7 +131,7 @@ class PositionAnalyzer:
         ma20_dist = (current_price / latest['MA20'] - 1) * 100
         ma60_dist = (current_price / latest['MA60'] - 1) * 100
 
-        # MACD信号 (真交叉: 审计 B10/L4 — 旧水平比较把持续多头连续多日
+        # MACD信号 (真交叉: 水平比较会把持续多头连续多日
         # 冒充"金叉", 与 technical_analyzer/signal_generator 交叉口径冲突)
         macd_signal = self._macd_cross_label(data)
 
@@ -219,7 +219,7 @@ class PositionAnalyzer:
 
     @staticmethod
     def _macd_cross_label(data):
-        """MACD 交叉标签: 真交叉才叫金叉/死叉 (审计 B10/L4)
+        """MACD 交叉标签: 真交叉才叫金叉/死叉
 
         与 technical_analyzer._analyze_signals / signal_generator 的
         shift(1) 交叉检测同源 —— 水平状态 (DIF 在信号线上方) 只报
@@ -243,7 +243,7 @@ class PositionAnalyzer:
         return '空头(未交叉)'
 
     def _calculate_score(self, data, latest):
-        """计算技术面评分 (NaN 不静默当 0 分 — 审计 C2 诚实性)
+        """计算技术面评分 (NaN 不静默当 0 分)
 
         指标不可用 (数据不足) 时, 对应分项不计分并记入
         `self._last_score_unavailable`, 由 analyze_position 如实返回给调用方
@@ -405,7 +405,7 @@ class PositionAnalyzer:
             lines.append(f"  {t_tip}")
         lines.append("")
 
-        # 信号时点 (advisory 声明: 审计 B10/L4, 与 technical_analyzer 报告一致)
+        # 信号时点 (advisory 声明, 与 technical_analyzer 报告一致)
         lines.append(f"  * {analysis_result.get('signal_timing', '')}")
 
         lines.append("=" * 80)

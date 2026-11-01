@@ -107,7 +107,7 @@ class Portfolio:
 class PortfolioManager:
     """组合管理器
 
-    风控接入 (审计项 20): 下单路径经 PortfolioRiskMonitor 集中度约束
+    风控接入: 下单路径经 PortfolioRiskMonitor 集中度约束
     (max_position_pct) 与现金约束阻断; StopLossManager 提供持仓级
     止损/止盈/移动止损检查。
     """
@@ -196,7 +196,7 @@ class PortfolioManager:
         # 计算交易金额
         trade_value = shares * price
 
-        # 风控闸门 (审计项 20): 买入受现金与单票集中度约束
+        # 风控闸门: 买入受现金与单票集中度约束
         # 旧逻辑注释"无资金限制" — 允许透支与满仓单票
         if shares > 0 and price > 0 and portfolio.total_value > 0:
             current_mv = (portfolio.positions[symbol].market_value
@@ -379,7 +379,7 @@ class PortfolioManager:
         if not portfolio:
             return {}
 
-        # 风控闸门 (审计项 20): 目标权重超单票上限即阻断
+        # 风控闸门: 目标权重超单票上限即阻断
         # 旧逻辑仅返回调整建议, 阈值只出现在报告文本
         if self.risk_block:
             oversized = {s: w for s, w in target_weights.items()
@@ -486,7 +486,7 @@ class PortfolioManager:
         weights = [pos.weight for pos in portfolio.positions.values()]
         weights.sort(reverse=True)
 
-        # 计算集中度 — 统一走 risk_management.PortfolioRiskMonitor (审计项 20)
+        # 计算集中度 — 统一走 risk_management.PortfolioRiskMonitor
         # HHI 刻度: get_concentration_risk 返回 0–1; 本模块对外 hhi 保持
         # 0–10000 传统口径 (报告阈值 >1000), 另附 hhi_normalized (0–1)
         positions_value = {pos.symbol: pos.market_value

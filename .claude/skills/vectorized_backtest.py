@@ -6,7 +6,7 @@
 - 向量化信号生成(无逐行循环)
 - 简化仓位跟踪(固定仓位比例，百分比止损)
 - 单股回测 ~10ms vs 现有BacktestEngine ~500ms
-- 成交容量约束 (审计 B14/H7): 单笔买入 ≤ 当日成交额 × 参与率 (默认 5%),
+- 成交容量约束: 单笔买入 ≤ 当日成交额 × 参与率 (默认 5%),
   容量不足则部分成交 (逐笔仓位比例可变) —— 成交量不再只用于信号打分
 
 用途: 遗传算法优化中的大规模回测评估
@@ -24,7 +24,7 @@ from core.indicator_engine import IndicatorEngine
 from core import metrics as _core_metrics
 from core import suspension as _core_suspension
 
-# 信号 warmup 上限 (审计 B23/H8③): _generate_signals 的 warmup 恒 ≤ 此值,
+# 信号 warmup 上限: _generate_signals 的 warmup 恒 ≤ 此值,
 # walk_forward 用它作为窗口前历史段长度, 保证 warmup 只落在历史段
 WARMUP_MAX_BARS = 60
 
@@ -35,7 +35,7 @@ def warmup_bars(n: int) -> int:
 
 
 def required_warmup_bars(params: dict) -> int:
-    """参数所需的**指标预热**长度 (根) —— 审计 M4。
+    """参数所需的**指标预热**长度 (根)。
 
     旧实现把预热长度写死为 `WARMUP_MAX_BARS` (60), 但**指标周期由参数决定**:
     `ma_slow` 可达 **120** (parameter_space: 15~120) → 60 根历史不够 →
@@ -75,9 +75,9 @@ class BacktestMetrics:
     num_trades: int = 0             # 交易次数
     avg_holding_days: float = 0.0   # 平均持有天数
     avg_return_per_trade: float = 0.0  # 平均每笔收益(%)
-    max_consecutive_losses: int = 0 # 最大连续亏损笔数 (交易序列口径, 审计 B48/M1)
-    max_consecutive_wins: int = 0   # 最大连续盈利笔数 (交易序列口径, 审计 B48/M1)
-    # 审计 H5: 停牌建模口径 (0 = 未建模/无停牌; 交易日数口径)
+    max_consecutive_losses: int = 0 # 最大连续亏损笔数 (交易序列口径)
+    max_consecutive_wins: int = 0   # 最大连续盈利笔数 (交易序列口径)
+    # 停牌建模口径 (0 = 未建模/无停牌; 交易日数口径)
     suspension_days: int = 0        # 区间内真停牌交易日数
     suspension_trading_days: int = 0  # 交易日轴长度 (0 = 按 bar 口径)
 
@@ -93,13 +93,13 @@ class TradeDetail:
     holding_days: int
     exit_reason: str        # "stop_loss" / "take_profit" / "signal" / "end"
     position_pct: float = 0.0  # 本笔实际仓位比例 (成交容量约束可能小于配置值)
-    suspended_days: int = 0   # 本笔持仓跨越的停牌交易日数 (审计 H5)
+    suspended_days: int = 0   # 本笔持仓跨越的停牌交易日数
 
 
 def metrics_from_trades(pnl_arr, holding_arr, trade_spans, close, open_arr,
                         position_size_pct,
                         trading_day_index=None) -> BacktestMetrics:
-    """从交易序列构建 BacktestMetrics（指标口径统一真相源, 审计 E-P1）。
+    """从交易序列构建 BacktestMetrics（指标口径统一真相源）。
 
     - 盈亏比: core 求和式; 最大回撤: core 正值% (日频盯市净值, 非逐笔序列)
     - 夏普: core 日频盯市收益, 年化252, rf=3%, ddof=1 (不再用逐笔收益冒充日频)
@@ -109,9 +109,9 @@ def metrics_from_trades(pnl_arr, holding_arr, trade_spans, close, open_arr,
     - 日频盯市近似: 入场日 开盘→收盘(不含隔夜跳空), 出场日仅保留隔夜跳空;
       仅用于 MDD/Sharpe, 不改 total_return
     - position_size_pct: 标量(统一仓位比例) 或**逐笔数组** (成交容量约束
-      导致部分成交时每笔比例不同, 审计 B14/H7)。全部相等时走标量路径,
+      导致部分成交时每笔比例不同)。全部相等时走标量路径,
       数值与旧版逐位一致。
-    - trading_day_index (审计 H5, 可选): 交易日 → bar 下标的前向填充映射。
+    - trading_day_index (可选): 交易日 → bar 下标的前向填充映射。
       给定时时间轴换成**交易日轴**: 年化分母用交易日数, 夏普/回撤的
       日频序列按交易日对齐 (停牌日市值持平, 不再被当作"没发生") →
       修正停牌导致的年化/夏普虚高。None → 旧口径 (bar 数), 逐位不变。
@@ -136,7 +136,7 @@ def metrics_from_trades(pnl_arr, holding_arr, trade_spans, close, open_arr,
 
     n = len(close)
 
-    # 胜率 (core 统一口径: 盈亏为 0 计入分母但不算赢, 审计 M1)
+    # 胜率 (core 统一口径: 盈亏为 0 计入分母但不算赢)
     win_rate = _core_metrics.win_rate(pnl_arr)
 
     # 盈亏比（core 求和式口径，统一 A/B/优化器）
@@ -147,7 +147,7 @@ def metrics_from_trades(pnl_arr, holding_arr, trade_spans, close, open_arr,
     total_return = (cumulative[-1] - 1) * 100 if len(cumulative) > 0 else 0
 
     # 年化收益
-    # 审计 H5: 给定交易日映射 → 年化分母用**交易日数** (停牌期计入分母);
+    # 给定交易日映射 → 年化分母用**交易日数** (停牌期计入分母);
     # 未给 → 旧口径 (bar 数), 与旧版逐位一致
     n_periods = n
     if trading_day_index is not None and len(trading_day_index) > 0:
@@ -158,7 +158,7 @@ def metrics_from_trades(pnl_arr, holding_arr, trade_spans, close, open_arr,
     else:
         annualized_return = 0
 
-    # 日频盯市净值（审计项9: 消除逐笔复利曲线对回撤的低估）
+    # 日频盯市净值（逐笔复利曲线会低估回撤）
     # 在仓区间按 日收益×仓位 累乘; 入场日按 开盘→收盘(不含隔夜跳空),
     # 出场日仅保留隔夜跳空(按开盘成交)。近似口径, 仅用于 MDD/Sharpe。
     daily_ret = np.zeros(n)
@@ -189,7 +189,7 @@ def metrics_from_trades(pnl_arr, holding_arr, trade_spans, close, open_arr,
     sharpe = _core_metrics.sharpe_ratio(daily_ret * held,
                                         periods_per_year=252, rf=0.03)
 
-    # 审计 H5: 时间轴换成**交易日轴** —— 停牌日个股无价格 → 市值持平,
+    # 时间轴换成**交易日轴** —— 停牌日个股无价格 → 市值持平,
     # 收益率为 0 (精确口径: 前向填充)。旧实现按 bar 数计年化、bar 收益
     # 年化夏普 → 停牌期被当作"没发生", 年化/夏普虚高。
     if trading_day_index is not None and len(trading_day_index) > 0:
@@ -216,7 +216,7 @@ def metrics_from_trades(pnl_arr, holding_arr, trade_spans, close, open_arr,
                                             periods_per_year=252, rf=0.03)
 
     # 最大连胜/连亏 (core 统一口径: **交易序列**, breakeven 不算赢也不算亏,
-    # 旧实现用 pnl<=0 把 breakeven 当亏损 → 与引擎 A 分歧, 审计 B48/M1)
+    # 用 pnl<=0 把 breakeven 当亏损会与引擎 A 分歧)
     max_consec_wins, max_consec = _core_metrics.consecutive_streaks(pnl_arr)
 
     return BacktestMetrics(
@@ -236,7 +236,7 @@ def metrics_from_trades(pnl_arr, holding_arr, trade_spans, close, open_arr,
 
 def weighted_factor_scores(df: pd.DataFrame, params: dict) -> tuple:
     """
-    4 因子加权评分 (0-100 连续买卖分), 审计 E-P1 死维度接线 (P1-1)。
+    4 因子加权评分 (0-100 连续买卖分)。
 
     移植已删 web_backtest.calculate_weighted_score 的评分制语义, 向量化:
       trend   : MA 多头排列(+40) / 仅 fast>slow(+20) + MACD 多头(+40)
@@ -336,15 +336,15 @@ class VectorizedBacktester:
             历史数据，必须包含: 日期, 开盘, 最高, 最低, 收盘, 成交量
         params : dict
             参数字典，来自ParameterSpace。
-            成交容量相关 (审计 B14/H7):
+            成交容量相关:
               - max_volume_participation: 单笔买入 ≤ 当日成交额 × 该比例
                 (默认 0.05; 0 = 关闭约束)
               - capital: 名义资金 (默认 100 万), 仅用于把仓位比例折算成金额
-        history : pd.DataFrame, optional (审计 B23/H8③)
+        history : pd.DataFrame, optional
             窗口前历史段。给定时与 data 拼接后计算指标与信号 —— 每窗重置的
             warmup 只落在历史段 (段长 ≥ warmup 上限 60 时窗口内信号不被清零),
             再切回 data 段模拟交易。None 时行为与旧版逐位一致。
-        trading_calendar : optional (审计 H5)
+        trading_calendar : optional
             交易日历。给定时启用停牌建模: 指标时间轴换成**交易日轴**
             (年化分母用交易日数, 夏普按交易日对齐) → 修正停牌导致的
             年化/夏普虚高; 逐笔记录持仓跨停牌的交易日数。
@@ -407,7 +407,7 @@ class VectorizedBacktester:
                     'num_trades': metrics.num_trades,
                     'avg_holding_days': metrics.avg_holding_days,
                     'avg_return_per_trade': metrics.avg_return_per_trade,
-                    # 审计 H5: 停牌建模口径
+                    # 停牌建模口径
                     'suspension_days': metrics.suspension_days,
                 }
                 results.append(result)
@@ -420,7 +420,7 @@ class VectorizedBacktester:
         """计算所有技术指标(向量化)"""
         df = data.copy()
         close = df['收盘'].astype(float)
-        # 共享指标引擎 (审计 #10): 公式唯一来源 core.indicators
+        # 共享指标引擎: 公式唯一来源 core.indicators
         eng = IndicatorEngine(df)
 
         # ---- 移动平均线 ----
@@ -476,7 +476,7 @@ class VectorizedBacktester:
         """
         向量化生成买卖信号
 
-        双模式 (审计 E-P1 死维度接线):
+        双模式:
         - 投票制 (默认): 各指标事件加权点数 vs buy/sell_threshold (旧基线)
         - 评分制 (use_weighted_scoring=True): 4 因子 0-100 加权分
           vs score_buy/sell_threshold, 状态触发
@@ -586,7 +586,7 @@ class VectorizedBacktester:
         """
         回测并返回交易详情 (用于按体制过滤)
 
-        trading_calendar: 可选交易日历 (审计 H5) → 启用停牌建模
+        trading_calendar: 可选交易日历 → 启用停牌建模
 
         Returns:
         --------
@@ -610,30 +610,30 @@ class VectorizedBacktester:
 
         撮合规则:
         - 信号在 bar t 收盘 → 持仓在 bar t+1 开盘成交; 开盘涨停不买入
-        - 持仓状态机 (审计 B21/H8①): 持仓期间的新买讯**忽略** (不再把上一笔
+        - 持仓状态机: 持仓期间的新买讯**忽略** (把上一笔
           切成 0 持仓日伪交易); 持仓期只由出场规则结束
         - 硬止损: 日内触发, 跌停封板不可卖出(顺延), 跳空按开盘成交
         - 追踪止损: 仅用截至前一根的最高价(无同根高低点未来函数)
         - 止盈: 最小持有期后日内触发, 跳空按开盘成交
         - 卖讯: 下一根开盘成交, 开盘跌停则顺延至下一个可成交卖讯
         - 成本: 滑点+佣金+过户费(买) / 另加印花税(卖); 持有天数按自然日计
-        - 停牌建模 (审计 H5): 给定交易日历时, 指标时间轴换成交易日轴
+        - 停牌建模: 给定交易日历时, 指标时间轴换成交易日轴
           (年化分母/夏普按交易日) + 逐笔记录持仓跨停牌的交易日数;
           撮合本身不变 (停牌日个股无 bar → 天然无成交)
         """
         stop_loss_pct = float(params.get('stop_loss_pct', 0.08))
         take_profit_pct = float(params.get('take_profit_pct', 0.20))
         position_size_pct = float(params.get('position_size_pct', 0.8))
-        # 单票仓位硬上限 (审计项 20): 默认1.0不改变历史行为;
+        # 单票仓位硬上限: 默认1.0不改变历史行为;
         # 显式传入时与 position_size_pct 取小
         max_position_pct = float(params.get('max_position_pct', 1.0))
         position_size_pct = min(position_size_pct, max_position_pct)
         trailing_stop_pct = float(params.get('trailing_stop_pct', 0.05))
-        # 最小持有期默认 0 = 不锁 (审计 B22/H8②): 旧默认 20 让锁定期内只有
+        # 最小持有期默认 0 = 不锁: 若默认 20 会让锁定期内只有
         # 硬止损生效 (追踪/止盈/卖讯全部失效), 且 A 引擎无此概念 → 三引擎
         # 口径不一致; 显式配置时仍作为锁定期语义生效
         min_holding = int(params.get('min_holding_days', 0))
-        # 成交容量约束 (审计 B14/H7): 单笔买入金额 ≤ 当日成交额 × 参与率;
+        # 成交容量约束: 单笔买入金额 ≤ 当日成交额 × 参与率;
         # capital = 名义资金 (仅用于把仓位比例折算成金额, 默认 100 万/股)
         participation = float(params.get('max_volume_participation',
                                          DEFAULT_MAX_VOLUME_PARTICIPATION))
@@ -657,7 +657,7 @@ class VectorizedBacktester:
 
         dates = pd.to_datetime(df['日期']).values if '日期' in df.columns else None
 
-        # 停牌建模 (审计 H5): 交易日 → bar 的前向填充映射 (停牌日沿用上一根)
+        # 停牌建模: 交易日 → bar 的前向填充映射 (停牌日沿用上一根)
         tdi = _core_suspension.trading_day_index(trading_calendar, dates)
         susp_model = _core_suspension.SuspensionModel.build(
             trading_calendar,
@@ -675,7 +675,7 @@ class VectorizedBacktester:
         cm = self.cost_model
         prev_close_all = np.r_[np.nan, close[:-1]]
 
-        # ---- 持仓状态机 (审计 B21/H8①) ----
+        # ---- 持仓状态机 ----
         # 旧实现: 用"下一次买入信号"切分持仓期 → 密集买讯会把上一笔切成
         # 0 根 bar (0 持仓日伪交易), 交易数/胜率/Sharpe 全部失真。
         # 新实现: 空仓时遇买讯 → 次根开盘入场; 持仓期间的新买讯**忽略**;
@@ -706,7 +706,7 @@ class VectorizedBacktester:
                 i += 1
                 continue
 
-            # 成交容量约束 (审计 B14/H7): 本笔最多成交 当日成交额×参与率
+            # 成交容量约束: 本笔最多成交 当日成交额×参与率
             eff_fraction = position_size_pct
             if participation > 0 and turnover_arr is not None and capital > 0:
                 cap_notional = capacity_limit_notional(
@@ -808,7 +808,7 @@ class VectorizedBacktester:
             trade_spans.append((int(entry_bar), int(exit_offset)))
             trades_frac.append(float(eff_fraction))
 
-            # 审计 H5: 本笔持仓跨越的停牌交易日数 (跳空敞口可见化)
+            # 本笔持仓跨越的停牌交易日数 (跳空敞口可见化)
             trade_suspended = 0
             if susp_model is not None and dates is not None:
                 trade_suspended = susp_model.suspended_days_between(
@@ -835,7 +835,7 @@ class VectorizedBacktester:
         if len(trades_pnl) == 0:
             return _empty()
 
-        # 指标统一口径 (审计 E-P1: 共享 metrics_from_trades, 消除复制块)
+        # 指标统一口径 (共享 metrics_from_trades, 消除复制块)
         pnl_arr = np.array(trades_pnl, dtype=np.float64)
         holding_arr = np.array(trades_holding, dtype=np.float64)
         # 逐笔仓位比例 (容量约束可能部分成交; 全部相等时 metrics 走标量路径)
@@ -843,7 +843,7 @@ class VectorizedBacktester:
         metrics = metrics_from_trades(pnl_arr, holding_arr, trade_spans,
                                       close, open_arr, frac_arr,
                                       trading_day_index=tdi)
-        # 审计 H5: 停牌建模口径落到指标 (0 = 未建模/无停牌)
+        # 停牌建模口径落到指标 (0 = 未建模/无停牌)
         if susp_model is not None:
             metrics.suspension_days = len(susp_model.suspended_days)
         if tdi is not None:
@@ -857,14 +857,14 @@ class VectorizedBacktester:
                      train_days=504, test_days=180, step_days=63,
                      param_space: dict = None) -> list:
         """
-        单只股票的Walk-Forward验证（IS 拟合 / OOS 评估，审计项 17）。
+        单只股票的Walk-Forward验证（IS 拟合 / OOS 评估）。
 
         参数:
         --------
         train_days: 窗口**前置丢弃期**长度 —— 首个评估窗之前的 bar 数
             (指标预热用)。默认不传 param_space 时它**不用于拟合任何东西**,
             只是丢弃期; 真正的样本外隔离由调用方
-            (`optimization_engine.split_is_oos`, 审计 H1) 负责: 末尾
+            (`optimization_engine.split_is_oos`) 负责: 末尾
             oos_ratio 比例的窗口留作 OOS, 从不参与参数选择。
         param_space: {参数名: [候选值, ...]}。给定时每个窗口先在训练窗
             网格搜索（最大化 Sharpe）拟合参数，再在测试窗用拟合参数评估，
@@ -875,7 +875,7 @@ class VectorizedBacktester:
             参数选择路径 (那样被评估的参数 ≠ 最终部署的参数, 报告的样本外
             指标无法代表部署参数的表现)。生产端部署的是固定参数。
 
-        warmup 跨窗口继承 (审计 B23/H8③): 每个窗口回测时把窗口**之前**的
+        warmup 跨窗口继承: 每个窗口回测时把窗口**之前**的
         历史段 (最多 60 根 = warmup 上限) 作为 history 传入, 指标与信号在
         [历史+窗口] 上计算后再切回窗口段 —— 每窗重置的 warmup 不再吃掉
         OOS 窗口的前 1/3 (旧版: 180 根测试窗前 60 根信号被强制清零,
@@ -891,7 +891,7 @@ class VectorizedBacktester:
         def _history(start: int, p: dict = None) -> pd.DataFrame:
             """窗口前历史段 (warmup 落点), 不足则取全部可用。
 
-            长度按**参数所需**的指标预热 (审计 M4): 写死 60 根时,
+            长度按**参数所需**的指标预热: 写死 60 根时,
             `ma_slow` > 60 的参数在窗口内指标全 NaN → 信号恒 0 →
             该窗口静默失效 (测不出任何东西, 也不报错)。
             """
@@ -903,7 +903,7 @@ class VectorizedBacktester:
             names = list(param_space.keys())
             for combo in itertools.product(*param_space.values()):
                 candidate = {**params, **dict(zip(names, combo))}
-                # 审计 M4: 历史段长度按**候选参数**所需 (候选的指标周期可能
+                # 历史段长度按**候选参数**所需 (候选的指标周期可能
                 # 比基准参数更长 → 预热不足会让候选静默失效)
                 m = self.backtest(train_data, candidate,
                                   history=_history(train_start, candidate))

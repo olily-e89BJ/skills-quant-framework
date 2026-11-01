@@ -61,14 +61,14 @@ class StockDataFetcher:
 
         print(f"[OK] 数据将保存到: {self.data_dir.absolute()}")
 
-        # 最近一次 get_quote_data 的结构化结果 (审计项 11 FetchResult)
+        # 最近一次 get_quote_data 的结构化结果 (FetchResult)
         self.last_fetch_result = None
 
     def _format_symbol(self, symbol):
         """
         格式化股票代码为 sh/sz/bj 前缀格式 (新浪财经接口要求)
 
-        规则的单一真相源是 `sina_daily.format_symbol` (审计 M18): 旧实现缺
+        规则的单一真相源是 `sina_daily.format_symbol`: 缺
         bj 分支, 4/8/92 开头的北交所裸码原样发给新浪 → 404 且异常被吞。
 
         Args:
@@ -80,7 +80,7 @@ class StockDataFetcher:
         return format_symbol(symbol)
 
     def _dedupe_quote_cache(self, symbol, adjust="", keep=None):
-        """quotes/ 快照按 (股票, 复权口径) 去重 — 同口径只留最新 (审计 M16)
+        """quotes/ 快照按 (股票, 复权口径) 去重 — 同口径只留最新
 
         旧实现文件名 `{symbol}_{起}_{止}.csv` 与日期区间绑定: 同一股票每次
         取数 (尤其重叠区间) 都新增一个文件, 目录无上限膨胀且内容大量重叠。
@@ -148,7 +148,7 @@ class StockDataFetcher:
             adjust: 复权口径 — 默认 'hfq' 后复权 (DEFAULT_ADJUST, 产品
                 决策 2026-10-30); ''=不复权 / 'qfq' 需显式指定。
                 **复权是数据维度**: 不同口径的序列混用会在除权日产生
-                虚假跳空, 收益率与全部指标随之失真 (审计 P0-4)。
+                虚假跳空, 收益率与全部指标随之失真。
 
         Returns:
             行情数据 DataFrame
@@ -171,7 +171,7 @@ class StockDataFetcher:
 
         try:
             # 新浪接口 (sh/sz 透传 ak.stock_zh_a_daily; bj 走 klc 直连,
-            # akshare 对 bj 在 amount 步骤崩溃 — 审计 M18, 见 sina_daily)
+            # akshare 对 bj 在 amount 步骤崩溃 — 见 sina_daily)
             df = fetch_daily(
                 symbol=sina_symbol,
                 start_date=start_date.date(),
@@ -180,12 +180,12 @@ class StockDataFetcher:
             )
 
             if df is not None and len(df) > 0:
-                # 标准化列名 + 日期排序 + 涨跌幅 (共享单一真相源, 审计 M19;
+                # 标准化列名 + 日期排序 + 涨跌幅 (共享单一真相源;
                 # 新浪接口返回英文列名)
                 df = standardize_daily_frame(df)
 
-                # 保存到本地 (同 (股票, 口径) 只留最新快照 — 审计 M16)
-                # 复权口径进文件名 (raw 保持旧名兼容; 审计 P0-4 同构)
+                # 保存到本地 (同 (股票, 口径) 只留最新快照)
+                # 复权口径进文件名 (raw 保持旧名兼容)
                 tag_part = f"_{adjust}" if adjust in ("qfq", "hfq") else ""
                 filename = (f"{symbol}{tag_part}_"
                             f"{start_date.strftime('%Y%m%d')}_"
@@ -219,7 +219,7 @@ class StockDataFetcher:
     def get_quote_result(self, symbol, start_date=None, end_date=None, days=252,
                          adjust=DEFAULT_ADJUST):
         """
-        获取历史行情并返回结构化 FetchResult (审计项 11)
+        获取历史行情并返回结构化 FetchResult
 
         与 get_quote_data 的区别: 失败不再只体现为空 DataFrame，
         调用方应检查 result.ok / result.error。
@@ -228,7 +228,7 @@ class StockDataFetcher:
             adjust: 复权口径 — 默认 'hfq' 后复权 (DEFAULT_ADJUST); ''=
                 不复权 / 'qfq' 需显式指定 (真实成本对比/实时报价对齐必须
                 传 '')。随结果记录在 FetchResult.adjust, 调用方据此判断
-                序列口径 (审计 P0-4: adjust 是数据维度)
+                序列口径 (adjust 是数据维度)
 
         Returns:
             core.fetch_result.FetchResult
@@ -255,7 +255,7 @@ class StockDataFetcher:
             end_date: 结束日期
             period: 周期
             adjust: 复权方式 — 默认 DEFAULT_ADJUST('hfq') 与主路径对齐
-                    (审计R4: 旧默认 "qfq" 与主路径混用会产生除权跳空)
+                    (默认 "qfq" 与主路径混用会产生除权跳空)
 
         Returns:
             行情数据 DataFrame
@@ -272,7 +272,7 @@ class StockDataFetcher:
             )
 
             if df is not None and len(df) > 0:
-                # 单位对齐 (审计R4): stock_zh_a_hist 成交量单位=手,
+                # 单位对齐: stock_zh_a_hist 成交量单位=手,
                 # 主路径 stock_zh_a_daily 单位=股 → 统一换算为股
                 if '成交量' in df.columns:
                     df['成交量'] = df['成交量'] * 100
@@ -375,7 +375,7 @@ class StockDataFetcher:
                     parts = data.split('~')
                     if len(parts) > 40:
                         # 腾讯字段表: 30=时间(YYYYMMDDHHMMSS), 33/34=高/低,
-                        # 36=成交量(手), 37=成交额(万元) — 统一到"元" (审计R10)
+                        # 36=成交量(手), 37=成交额(万元) — 统一到"元"
                         dt_str = parts[30]
                         result = {
                             '代码': symbol,
@@ -492,7 +492,7 @@ class StockDataFetcher:
         if df.empty or '收盘' not in df.columns:
             return df
 
-        # 共享指标引擎 (审计 #10)
+        # 共享指标引擎
         eng = IndicatorEngine(df)
         close = df['收盘']
 
@@ -529,7 +529,7 @@ class StockDataFetcher:
         # 成交量移动平均
         df['VOL_MA5'] = eng.volume_ma(5)
 
-        # 涨跌幅（如果还没有; 共享单一真相源, 审计 M19）
+        # 涨跌幅（如果还没有; 共享单一真相源）
         df = ensure_change_pct(df)
 
         return df

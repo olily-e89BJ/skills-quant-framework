@@ -73,13 +73,13 @@ class PredictionResult:
     probability: float  # 预测概率
     confidence: float  # 置信度
     features: Dict[str, float]  # 特征值
-    # 交易约束前置检查 (审计 C-P1-12): False = 停牌/涨跌停/流动性阻断
+    # 交易约束前置检查: False = 停牌/涨跌停/流动性阻断
     executable: bool = True
     blocked_reasons: List[str] = field(default_factory=list)
     skipped_checks: List[str] = field(default_factory=list)
 
     def to_signal(self, execute_at=None):
-        """→ 统一契约 Signal (审计 C #9b).
+        """→ 统一契约 Signal.
 
         映射: prediction up→BUY / down→SELL / hold→HOLD;
         strength = probability ([0,1], 无符号 scale='prob' — 方向由 action
@@ -115,7 +115,7 @@ class PredictionResult:
         )
 
     def to_signal(self, execute_at=None):
-        """→ 统一契约 Signal (审计 C #9b).
+        """→ 统一契约 Signal.
 
         映射: prediction up→BUY / down→SELL / hold→HOLD;
         strength = probability ([0,1], 无符号 scale='prob' — 方向由 action
@@ -211,7 +211,7 @@ class FeatureEngineer:
         features['momentum_10'] = features['收盘'] / features['收盘'].shift(10) - 1
         features['momentum_20'] = features['收盘'] / features['收盘'].shift(20) - 1
 
-        # 共享指标引擎 (审计 #10): 公式唯一来源 core.indicators
+        # 共享指标引擎: 公式唯一来源 core.indicators
         eng = IndicatorEngine(features)
 
         # RSI特征 (core 单一真相源)
@@ -522,11 +522,11 @@ class MLPredictor:
         # 特征值
         feature_values = {col: latest[0][i] for i, col in enumerate(feature_cols)}
 
-        # 审计 C-P1-12: 预测照常输出, 附可执行性标注 (方向按预测;
+        # 预测照常输出, 附可执行性标注 (方向按预测;
         # 数据无 symbol 列 → 一字板记 skipped)
         side = {'up': 'buy', 'down': 'sell'}.get(prediction_str, 'both')
         constraint = trade_constraints.check_last_bar(data, code=None, side=side)
-        # 审计 C #9 收口: 约束字段统一装配 (不再各模块手拼)
+        # 约束字段统一装配 (不在各模块手拼)
         cfields = constraint.as_signal_fields()
 
         return PredictionResult(

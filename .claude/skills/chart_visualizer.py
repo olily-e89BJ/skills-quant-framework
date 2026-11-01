@@ -190,7 +190,7 @@ class ChartVisualizer:
         else:
             macd = data['MACD']
             macd_signal = data['MACD_Signal']
-            # 防御: 旧产出可能缺 MACD_Hist (审计 B-C7; 现 technical_analyzer/
+            # 防御: 旧产出可能缺 MACD_Hist (现 technical_analyzer/
             # position_analyzer 均已补产, 此处兜底历史数据路径)
             macd_hist = (data['MACD_Hist'] if 'MACD_Hist' in data.columns
                          else macd - macd_signal)
@@ -501,7 +501,7 @@ class ChartVisualizer:
         ax1.plot(plot_data['date_num'], ma20, label='MA20', linewidth=1, alpha=0.8)
 
         # 标注买卖信号
-        # (审计 #20: generate_signals 产出 int 0/1, 旧代码 == True 在
+        # (generate_signals 产出 int 0/1, 旧代码 == True 在
         #  int 列上语义脆弱 — 统一 astype 布尔化, 与回测引擎同源同判)
         if 'signal_buy' in signals.columns:
             buy_mask = signals['signal_buy'].fillna(0).astype(bool)

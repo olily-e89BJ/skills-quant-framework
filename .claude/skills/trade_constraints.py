@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-统一交易约束过滤器 - 信号/选股层前置可执行性检查 (审计 C-P1-12)
+统一交易约束过滤器 - 信号/选股层前置可执行性检查
 
 背景: 回测执行侧的 t+1/成本/涨跌停/一字板拦截已由 execution_model 覆盖
 (4 个回测引擎已接); 但 7 个信号/选股模块 (signal_generator /
@@ -13,12 +13,12 @@ long_term_selector / reversal_detector / ml_predictor) 在推荐与输出时
 不另写第二套规则。
 
 检查项与覆盖边界 (无法检查的诚实记入 skipped_checks, 不伪造):
-- 一字板 (常开): 最后一根 高==低 (蕴含 开=高=低=收, 审计近似
+- 一字板 (常开): 最后一根 高==低 (蕴含 开=高=低=收, 近似
   "收盘==最高==最低") 且收盘触及板价。买入仅被一字涨停阻、卖出仅被
   一字跌停阻 (与 execution_model.can_buy/sell_at_open 语义对齐)。
   数据侧无涨跌停价列, 用前收+幅度近似; ST 幅度数据侧无 ST 标记,
   默认按非 ST 判定 (调用方可传 is_st=True)。
-- 停牌/数据过期 (审计 C-P1-12 遗留项已落地, 见 core/trading_calendar.py):
+- 停牌/数据过期 (见 core/trading_calendar.py):
     - **真停牌识别**: 提供交易日历时, 用"个股缺失的交易日"判定停牌
       (指数每交易日有行情 → 个股缺行 = 真停牌, 不误伤节假日);
       缺失 ≥1 个交易日 → 阻断买卖, 原因如实写"停牌或数据缺失";
@@ -29,7 +29,7 @@ long_term_selector / reversal_detector / ml_predictor) 在推荐与输出时
 - 流动性:
     - min_price: 最新收盘 < min_price (默认 1.0 元) → 阻断;
     - min_adv_amount: 20 日均成交额下限, 默认 0=关闭 (历史成交额
-      单位维度未清洗 — 审计遗留, 防误杀, 部署方按需启用);
+      单位维度未清洗 — 防误杀, 部署方按需启用);
     - max_adv_participation: 仅调用方给 target_amount 时生效
       (目标金额 ≤ ADV20 × 占比上限);
     - min_market_cap: 数据侧无市值列 → 记 skipped (配置占位)。
@@ -83,7 +83,7 @@ class ConstraintReport:
         self.blocked_reasons.append(reason)
 
     def as_signal_fields(self) -> Dict[str, Any]:
-        """→ 契约字段 (审计 C #9 收口: 各模块不再各自拼装可执行性字段).
+        """→ 契约字段 (各模块不各自拼装可执行性字段).
 
         统一产出 executable / blocked_reasons / skipped_checks 三字段,
         与 core.signal.Signal 的字段同名同义。
@@ -133,7 +133,7 @@ def check_last_bar(df: pd.DataFrame,
                    calendar: Optional[TradingCalendar] = None
                    ) -> ConstraintReport:
     """
-    对单只股票最新 bar 做交易约束检查 (审计 C-P1-12)。
+    对单只股票最新 bar 做交易约束检查。
 
     Args:
         df: 含 OHLCV 的行情数据 (最后一根 = 待检查 bar)
@@ -175,7 +175,7 @@ def check_last_bar(df: pd.DataFrame,
         close, prev_close = latest['收盘'], df['收盘'].iloc[-2]
         if not (pd.isna(high) or pd.isna(low) or pd.isna(close)
                 or pd.isna(prev_close)):
-            # 平栏 (高==低) 蕴含 开=高=低=收 — 审计近似一字板
+            # 平栏 (高==低) 蕴含 开=高=低=收 — 近似一字板
             if high == low:
                 report.details['sealed_bar'] = True
                 if side in ('buy', 'both') and is_limit_up_price(
@@ -189,7 +189,7 @@ def check_last_bar(df: pd.DataFrame,
             else:
                 report.details['sealed_bar'] = False
 
-    # ---- 停牌识别 (审计 C-P1-12 遗留项): 交易日历口径 ----
+    # ---- 停牌识别: 交易日历口径 ----
     # 真停牌 = 个股在最近交易日无行情行 (指数每交易日有行 → 个股缺行即停牌);
     # 无日历时降级为"零成交末 bar"启发式 (只能抓最后一根无成交的情形)。
     cal = calendar if calendar is not None else get_calendar()
@@ -244,7 +244,7 @@ def check_last_bar(df: pd.DataFrame,
             if cal is not None and getattr(cal, 'days', None):
                 missing = cal.trading_days_since(last_date, as_of)
             if missing is not None:
-                # 交易日口径: 节假日/周末不算过期 (审计 C-P1-12 遗留项)
+                # 交易日口径: 节假日/周末不算过期
                 report.details['stale_days'] = missing
                 report.details['stale_basis'] = 'trading_days'
                 age = missing

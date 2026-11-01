@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-"""交易日历与停牌识别（审计 C-P1-12 遗留项：停牌建模）。
+"""交易日历与停牌识别。
 
 背景与根本限制:
     A 股停牌日**没有行情行**——数据源里该日整行缺失，既没有"停牌=1"标记，
-    也没有"该股无成交但有行"的形态。上一版（`trade_constraints` 的零成交
-    末 bar 启发式）只能猜"最后一根没成交"，无法回答两个真问题:
+    也没有"该股无成交但有行"的形态。仅靠零成交末 bar 启发式只能猜
+    "最后一根没成交"，无法回答两个真问题:
         1) 这只票今天到底停牌了吗？（末 bar 之前就停了很久）
         2) 数据过期了几天？（按自然日算会把春节/国庆误判成停牌）
 
@@ -17,7 +17,7 @@
 日历来源（按优先级，均为可选依赖，缺失时上层如实记 skipped_checks）:
     1. 显式传入: `TradingCalendar.from_index(index_df)` / `from_dates(dates)`
     2. 本地缓存: `data_dir/calendar/trading_days.json`（历史数据管理器的产物）
-    3. akshare 官方交易日历 `tool_trade_date_hist_sina()`（需网络，可缓存落盘）
+    3. 本地指数行情现算（`ensure_calendar()`，不联网；见该方法注释）
 
 设计约束:
     - 不静默失败: 拿不到日历时返回 None / 空日历，调用方必须显式处理
@@ -255,9 +255,8 @@ def ensure_calendar(data_dir: str = './stock_data',
     1. 已注入的进程级日历
     2. 本地缓存 JSON (stock_data/calendar/trading_days.json)
     3. 本地**指数**行情 (historical/index/000001) 现算 —— 指数每交易日有行
-       → 交易日集合 (审计 M12: 读 `load_index()` 指数命名空间; 此前读
-       `load('000001')` 个股命名空间 —— 那是平安银行, 会把个股的停牌日
-       当成市场休市日)
+       → 交易日集合 (必须走 `load_index()` 指数命名空间; 走个股 `load()`
+       会读到同代码个股——那是平安银行, 会把个股的停牌日当成市场休市日)
 
     不联网: akshare 日历需网络, 由部署方显式调用
     `TradingCalendar.from_akshare()` 落盘后本函数即可命中第 2 级。

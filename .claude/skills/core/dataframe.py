@@ -1,15 +1,12 @@
 # -*- coding: utf-8 -*-
-"""日线 DataFrame 列名标准化与派生列的单一真相源 (审计 M19)
+"""日线 DataFrame 列名标准化与派生列的单一真相源.
 
-背景 (审计 M19, 2026-10-29 复验):
-- 日线列名标准化 (英文列 → 中文列) 的映射字典在 **5 个模块各写一遍**
-  (`stock_data_fetcher` / `historical_data_manager` 个股 + 指数 /
-  `long_term_selector` / `reversal_detector`), 且**内容已漂移**: 3 处含
-  `成交额`、2 处不含 → 同一份数据经不同模块得到不同列集。
-- "缺失时补 `涨跌幅`" 的 pct_change 块在 **6 处各写一遍**
-  (`stock_data_fetcher` ×2 / `historical_data_manager` ×2 /
-  `position_analyzer` / `data_cleaner`), 口径也不统一: 5 处不转数值、
-  1 处 `to_numeric`; 5 处"缺失才补"、1 处无条件覆盖。
+背景:
+- 日线列名标准化 (英文列 → 中文列) 的映射字典若在多个模块各写一遍,
+  内容易漂移 (比如有的含 `成交额`、有的不含) → 同一份数据经不同模块
+  得到不同列集。
+- "缺失时补 `涨跌幅`" 的 pct_change 块同理, 口径 (是否 to_numeric /
+  是否无条件覆盖) 容易分裂。
 
 本模块是唯一实现, 各调用方只调函数, 不再自带映射/公式:
 - `OHLCV_COLUMN_MAP`             英文 → 中文 列名映射 (7 列, 唯一真相源)
@@ -27,7 +24,7 @@
 """
 import pandas as pd
 
-# 英文 → 中文 列名映射 (唯一真相源; 审计 M19)
+# 英文 → 中文 列名映射 (唯一真相源)
 # 注: `df.rename(columns=...)` 对不存在的列自动跳过 → 7 列统一映射对
 # "接口不返回成交额" 的场景 (指数接口) 同样适用, 无需各写各的子集
 OHLCV_COLUMN_MAP = {

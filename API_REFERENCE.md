@@ -1,30 +1,16 @@
-# Skills 模块 API 参考文档
+# Skills 量化分析框架 API 参考
 
-**版本：** v1.0
-**更新日期：** 2026-02-06
+按分层组织（数据层 → 指标层 → 信号/选股层 → 回测/优化层 → 执行/风控层 → UI）。列名与指标口径契约见 `docs/skills_layers.md`。
 
----
-
-## 目录
-
-1. [数据获取模块 (stock_data_fetcher.py)](#1-数据获取模块)
-2. [信号生成器 (signal_generator.py)](#2-信号生成器)
-3. [技术分析器 (technical_analyzer.py)](#3-技术分析器)
-4. [回测框架 (backtest_framework.py)](#4-回测框架)
-5. [多因子选股 (multi_factor_selection.py)](#5-多因子选股)
-6. [组合管理 (portfolio_manager.py)](#6-组合管理)
-7. [实时监控 (real_time_monitor.py)](#7-实时监控)
-8. [数据可视化 (chart_visualizer.py)](#8-数据可视化)
+所有模块位于 `.claude/skills/`，按裸模块名导入，**从仓库根目录运行**（依赖 `sys.path` 相对路径）。
 
 ---
 
-## 1. 数据获取模块
+## 1. 数据层
 
-### StockDataFetcher
+### 1.1 StockDataFetcher（`stock_data_fetcher.py`）
 
-股票数据获取器，支持获取历史行情、财务指标、实时行情等。
-
-#### 初始化
+历史行情、实时行情、财务数据的取数入口。取数默认走本地缓存（`stock_data/`），缺失时联网回补。
 
 ```python
 from stock_data_fetcher import StockDataFetcher
@@ -32,710 +18,264 @@ from stock_data_fetcher import StockDataFetcher
 fetcher = StockDataFetcher(data_dir="./stock_data")
 ```
 
-**参数：**
-- `data_dir` (str): 数据存储目录，默认 "./stock_data"
-
-#### 方法
-
-##### get_quote_data()
-
-获取历史行情数据。
+#### get_quote_data()
 
 ```python
-df = fetcher.get_quote_data(
-    symbol="600519",
-    start_date="20230101",
-    end_date="20231231",
-    days=252
-)
+df = fetcher.get_quote_data(symbol="600519", days=252, adjust="hfq")
 ```
 
-**参数：**
-| 参数 | 类型 | 必填 | 说明 |
+| 参数 | 类型 | 默认 | 说明 |
 |------|------|------|------|
-| symbol | str | 是 | 股票代码，如 "600519" |
-| start_date | str/datetime | 否 | 开始日期，格式 "20230101" |
-| end_date | str/datetime | 否 | 结束日期，默认今天 |
-| days | int | 否 | 获取天数，默认252（约1年） |
+| symbol | str | — | 6 位股票代码 |
+| start_date / end_date | str/datetime | None | 与 days 二选一 |
+| days | int | 252 | 回溯自然日数 |
+| adjust | str | `"hfq"` | 复权口径：`"hfq"` 后复权（默认）/ `"qfq"` 前复权 / `""` 不复权。缺失口径返回空 DataFrame，不用其他口径冒充 |
 
-**返回：** DataFrame with columns: `日期, 开盘, 最高, 最低, 收盘, 成交量, 成交额, 涨跌幅`
+返回列：`日期, 开盘, 最高, 最低, 收盘, 成交量, 成交额, 涨跌幅`（标准列名映射见 `core/dataframe.OHLCV_COLUMN_MAP`）。
 
----
+默认后复权的理由：后复权历史价不随新分红变化，增量缓存追加永远正确；前复权每次分红要重算全部历史。**需要真实成交价的场景**（持仓成本对比、实时告警）必须显式传 `adjust=""`。
 
-##### calculate_technical_indicators()
+#### get_quote_result()
 
-计算技术指标。
+同 `get_quote_data`，但返回 `core.fetch_result.FetchResult`（`ok/data/error/source/as_of/adjust`）。失败时 `ok=False` 且带 `error`，不会静默返回空表。
 
-```python
-df = fetcher.calculate_technical_indicators(df)
+#### 其他方法
+
+| 方法 | 说明 |
+|------|------|
+| `get_realtime_quote(symbol)` | 单股实时快照（腾讯行情） |
+| `get_realtime_quotes_batch(symbols)` | 批量实时快照 |
+| `batch_get_quotes(symbols, start_date=None, end_date=None, delay=0.5)` | 批量历史行情，返回 `{symbol: DataFrame}` |
+| `get_financial_indicator(symbol, indicator="按年度")` | 财务指标（含公告日，供 point-in-time 过滤） |
+| `get_stock_money_flow(symbol)` | 资金流 |
+| `calculate_technical_indicators(df)` | 在 DataFrame 上追加常用技术指标列 |
+
+### 1.2 HistoricalDataManager（`historical_data_manager.py`）
+
+本地 Parquet/CSV 缓存的统一读写层（复权口径入库、元数据、增量更新、指数独立命名空间）。业务模块统一走 `get_daily_result()` 取数，不要自行联网。
+
+CLI（从仓库根目录）：
+
+```bash
+python .claude/skills/historical_data_manager.py fetch 600519 --adjust hfq
+python .claude/skills/historical_data_manager.py batch --adjust hfq
+python .claude/skills/historical_data_manager.py delisted {refresh,status,fetch}
 ```
 
-**添加的指标：**
-- **均线：** MA5, MA10, MA20, MA60, EMA20, EMA50
-- **MACD：** MACD, MACD_Signal, MACD_Hist
-- **RSI：** RSI (14日)
-- **KDJ：** K, D, J
-- **布林带：** BB_Middle, BB_Upper, BB_Lower, BB_Std
-- **ATR：** ATR (14日)
-- **成交量：** VOL_MA5
+### 1.3 其他数据模块
+
+| 模块 | 职责 |
+|------|------|
+| `realtime_quote.py` | 腾讯 `qt.gtimg.cn` 批量实时行情解析 |
+| `sina_daily.py` | 新浪日线直连（含北交所、klc 加密载荷解码，经 `js_runtime` V8 闸门） |
+| `delisted_stocks.py` | 沪深退市股清单与历史行情补齐（幸存者偏差证据） |
+| `data_cleaner.py` | 存量数据单位归一与结构清洗 |
+| `stock_list_manager.py` | 股票清单（`stock_list.csv`）与名称查询 |
 
 ---
 
-##### get_realtime_quote()
+## 2. 指标层（`core/`）
 
-获取实时行情。
+公式单一真相源在 `core/indicators.py`；业务模块通过 `core/indicator_engine.IndicatorEngine` 调用，不得内联重写公式。
 
 ```python
-quote = fetcher.get_realtime_quote("600519")
+from core.indicators import rsi, atr, macd, kdj, bollinger, vwap
+from core.indicator_engine import IndicatorEngine
+
+eng = IndicatorEngine(df)                    # df 含 收盘/最高/最低/成交量
+df["DIF"], df["DEA"], df["HIST"] = eng.macd()
 ```
 
-**返回：** dict with keys: `日期, 开盘, 最高, 最低, 收盘, 成交量, 涨跌幅`
+| 指标 | 函数 | 口径 |
+|------|------|------|
+| RSI | `rsi(close, period=14)` | Cutler SMA 平滑；窗口内无下跌→100，无波动→50 |
+| ATR | `atr(high, low, close, period=14)` | Wilder RMA，α=1/period |
+| MA/EMA | `sma` / `ema` | EMA 为递归口径（`ewm(span, adjust=False)`） |
+| MACD | `macd(close, fast, slow, signal)` | DIF=EMA(f)-EMA(s)；DEA=EMA(signal)(DIF)；HIST=DIF-DEA（不乘 2） |
+| KDJ | `kdj(high, low, close, n=9)` | RSV→EMA(span=3, α=0.5)→K/D；J=3K-2D |
+| BOLL | `bollinger(close, period=20, mult=2)` | mid=SMA；std 用样本标准差（ddof=1） |
+| VWAP | `vwap(high, low, close, volume)` | 累积口径：`cumsum(TP·V)/cumsum(V)`，锚定序列起点 |
+| OBV | `obv(close, volume)` | 按涨跌方向累加成交量 |
+
+规范列名（`IndicatorEngine.to_legacy/to_canonical` 双向映射）：`MA{p} / EMA{p} / DIF / DEA / HIST / RSI / K / D / J / BB_* / TR / ATR / Vol_MA{p} / VWAP / OBV`。
+
+回测指标口径在 `core/metrics.py`：`profit_factor`（求和式）、`max_drawdown_pct`（正值百分比）、`sharpe_ratio`（rf=0.03, ddof=1）、`win_rate`（盈利笔/全部笔，持平计分母不算赢）、`consecutive_streaks`（交易序列口径）。
 
 ---
 
-##### batch_get_quotes()
+## 3. 信号与选股层
 
-批量获取多只股票数据。
+### 3.1 SignalGenerator（`signal_generator.py`）
 
-```python
-data_dict = fetcher.batch_get_quotes(
-    symbols=["600519", "000858", "002415"],
-    start_date="20230101",
-    delay=0.5
-)
-```
-
-**参数：**
-- `symbols` (List[str]): 股票代码列表
-- `start_date` (str/datetime): 开始日期
-- `end_date` (str/datetime): 结束日期
-- `delay` (float): 请求间隔（秒），避免频繁请求
-
----
-
-## 2. 信号生成器
-
-### SignalGenerator
-
-根据技术指标生成买卖信号。
-
-#### 初始化
+全项目唯一的信号打分实现（日频，单股）。
 
 ```python
 from signal_generator import SignalGenerator
 
-generator = SignalGenerator()
+gen = SignalGenerator()
+df = gen.generate_signals(data)          # 追加 7 个 tier 分项 + 信号列
+latest = gen.get_latest_signal(data)     # 最新一根的信号 dict
+signal = gen.to_signal(data)             # core.signal.Signal 契约对象
 ```
 
-#### 方法
+输出列：`signal_buy` / `signal_sell`（互斥，两侧同时过阈值只保留分值高的一侧）、`signal_buy_score` / `signal_sell_score`、`signal_strength`，以及均线/MACD/KDJ/RSI/布林/量能/突破 7 个分项列。
 
-##### generate_signals()
+信号契约（`core/signal.Signal`）：`{symbol, signal_date, action∈{BUY,HOLD,SELL}, strength, scale, reasons, confidence, executable, blocked_reasons, source, ...}`。`scale` 显式声明刻度，跨模块比较前必须核对。
 
-生成交易信号。
+### 3.2 DailySignalGenerator（`daily_signal_generator.py`）
+
+外壳层：市场体制检测 + 按体制选参数 + 批量日报；内层打分委托 `SignalGenerator`。
 
 ```python
-df = generator.generate_signals(data)
+from daily_signal_generator import DailySignalGenerator
 ```
 
-**添加的信号列：**
-| 列名 | 说明 | 取值范围 |
-|------|------|----------|
-| signal_ma_cross | 均线交叉信号 | -1, -0.5, 0, 0.5, 1 |
-| signal_macd | MACD信号 | -1, -0.3, 0, 0.3, 1 |
-| signal_kdj | KDJ信号 | -1, -0.5, 0, 0.5, 1 |
-| signal_rsi | RSI信号 | -1, -0.2, 0, 0.2, 1 |
-| signal_bb | 布林带信号 | -1, -0.5, 0, 0.5, 1 |
-| signal_volume | 成交量信号 | -0.5, -0.2, 0, 0.3, 0.5 |
-| signal_breakout | 突破信号 | -1, 0, 1 |
-| signal_buy | 综合买入信号 | 0, 1 |
-| signal_sell | 综合卖出信号 | 0, 1 |
-| signal_strength | 信号强度 | -10 到 10 |
+### 3.3 MultiFactorSelector（`multi_factor_selection.py`）
 
----
-
-##### get_latest_signal()
-
-获取最新信号。
-
-```python
-signal_info = generator.get_latest_signal(data)
-```
-
-**返回：**
-```python
-{
-    'date': datetime,           # 日期
-    'price': float,             # 价格
-    'buy_signal': bool,         # 买入信号
-    'sell_signal': bool,        # 卖出信号
-    'strength': float,          # 信号强度 (-10到10)
-    'ma_cross': float,          # 均线信号
-    'macd': float,              # MACD信号
-    'kdj': float,               # KDJ信号
-    'rsi': float,               # RSI信号
-    'bb': float,                # 布林带信号
-    'volume': float,            # 成交量信号
-    'breakout': float           # 突破信号
-}
-```
-
----
-
-##### format_signal_report()
-
-格式化信号报告。
-
-```python
-report = generator.format_signal_report(signal_info)
-print(report)
-```
-
-**输出示例：**
-```
-============================================================
-交易信号报告
-============================================================
-
-日期: 2026-02-06
-价格: 1850.00 元
-
-综合信号:
-  买入信号: 是
-  卖出信号: 否
-  信号强度: +5.3
-
-分项信号:
-  均线: 买入 (金叉)
-  MACD: 买入 (金叉)
-  KDJ: 中性
-  RSI: 买入 (超卖)
-  布林带: 中性
-  突破: 买入 (突破新高)
-
-============================================================
-```
-
----
-
-## 3. 技术分析器
-
-### TechnicalAnalyzer
-
-技术分析指标计算和分析。
-
-#### 初始化
-
-```python
-from technical_analyzer import TechnicalAnalyzer
-
-analyzer = TechnicalAnalyzer()
-```
-
-#### 主要方法
-
-##### calculate_all_indicators()
-
-计算所有技术指标。
-
-```python
-df = analyzer.calculate_all_indicators(df)
-```
-
-##### get_support_resistance()
-
-获取支撑位和阻力位。
-
-```python
-levels = analyzer.get_support_resistance(df, n=5)
-```
-
-**返回：**
-```python
-{
-    'support': [1500, 1450, 1400, ...],    # 支撑位
-    'resistance': [1600, 1650, 1700, ...]  # 阻力位
-}
-```
-
----
-
-##### detect_pattern()
-
-检测K线形态。
-
-```python
-pattern = analyzer.detect_pattern(df)
-```
-
-**可检测的形态：**
-- 锤子线 (Hammer)
-- 上吊线 (Hanging Man)
-- 流星线 (Shooting Star)
-- 吞没形态 (Engulfing)
-- 三只乌鸦 (Three Black Crows)
-- 三白兵 (Three White Soldiers)
-
----
-
-## 4. 回测框架
-
-### BacktestEngine
-
-完整的回测引擎，支持多股票、止损止盈、多策略对比。
-
-#### 初始化
-
-```python
-from backtest_framework import BacktestEngine, PositionConfig, PositionSizingMethod, StopLossMethod
-
-engine = BacktestEngine(
-    initial_cash=1000000,
-    position_config=PositionConfig(
-        sizing_method=PositionSizingMethod.EQUAL_WEIGHT,
-        stop_loss_method=StopLossMethod.FIXED_PERCENTAGE,
-        stop_loss_pct=0.05
-    )
-)
-```
-
-#### 配置类
-
-##### PositionConfig
-
-持仓配置类。
-
-```python
-config = PositionConfig(
-    sizing_method=PositionSizingMethod.EQUAL_WEIGHT,    # 持仓方法
-    stop_loss_method=StopLossMethod.FIXED_PERCENTAGE,   # 止损方法
-    stop_loss_pct=0.05,                                  # 止损比例
-    take_profit_pct=0.15,                                # 止盈比例
-    max_positions=10,                                    # 最大持仓数
-    position_size_pct=0.1                                # 单只股票仓位比例
-)
-```
-
-**PositionSizingMethod 枚举：**
-| 方法 | 说明 |
-|------|------|
-| FIXED | 固定金额 |
-| EQUAL_WEIGHT | 等权重分配 |
-| RISK_PARITY | 风险平价 |
-| VOLATILITY_TARGET | 目标波动率 |
-| KELLY_CRITERION | 凯利公式 |
-
-**StopLossMethod 枚举：**
-| 方法 | 说明 |
-|------|------|
-| NONE | 不止损 |
-| FIXED_PERCENTAGE | 固定百分比止损 |
-| ATR_TRAILING | ATR跟踪止损 |
-| PEAK_TRAILING | 峰值跟踪止损 |
-
----
-
-#### 方法
-
-##### run_backtest()
-
-运行回测。
-
-```python
-result = engine.run_backtest(
-    data=data,           # 股票数据
-    signals=signals      # 买卖信号
-)
-```
-
-**返回：** BacktestResult对象
-
----
-
-##### compare_strategies()
-
-对比多个策略。
-
-```python
-strategies = {
-    'MA交叉': ma_signals,
-    'MACD': macd_signals,
-    '多因子': multi_signals
-}
-
-comparison = engine.compare_strategies(data, strategies)
-print(comparison.summary)
-```
-
----
-
-### BacktestResult
-
-回测结果类。
-
-#### 属性
-
-```python
-result.total_return       # 总收益率
-result.annual_return      # 年化收益率
-result.sharpe_ratio       # 夏普比率
-result.sortino_ratio      # 索提诺比率
-result.max_drawdown       # 最大回撤
-result.calmar_ratio       # 卡玛比率
-result.win_rate           # 胜率
-result.profit_factor      # 盈亏比
-result.equity_curve       # 净值曲线
-result.trades             # 交易列表
-```
-
-#### 方法
-
-##### generate_report()
-
-生成报告。
-
-```python
-report = result.generate_report(format='text')  # 'text', 'html', 'dict'
-print(report)
-```
-
----
-
-## 5. 多因子选股
-
-### MultiFactorSelector
-
-多因子选股模型，支持因子计算、有效性检验、组合优化。
-
-#### 初始化
+横截面多因子选股（回答"买什么"）。因子原始计算委托 `factor_library.py`（单一真相源），打分为横截面 z-score 加权。
 
 ```python
 from multi_factor_selection import MultiFactorSelector
 
 selector = MultiFactorSelector()
-```
-
-#### 方法
-
-##### calculate_factors()
-
-计算所有因子。
-
-```python
-factors = selector.calculate_factors(stock_data)
-```
-
-**支持的因子类别：**
-- **估值因子：** PE, PB, PS, PCF
-- **成长因子：** 营收增长, 利润增长, ROE
-- **质量因子：** ROA, 毛利率, 负债率
-- **技术因子：** 动量, 波动率, 换手率
-- **情绪因子：** 量比, 涨跌幅
-
----
-
-##### select_stocks()
-
-多因子选股。
-
-```python
+factors = selector.calculate_factors(financial_df, price_df)
 selected = selector.select_stocks(
-    stock_pool=all_stocks,
-    factor_weights={
-        '估值': 0.3,
-        '成长': 0.3,
-        '质量': 0.2,
-        '技术': 0.2
-    },
-    top_n=20
-)
+    financial_df, price_df, top_n=20, as_of="2026-06-30")
 ```
 
----
+**point-in-time 约束**：`select_stocks` 要求财务数据含公告日列并显式传 `as_of`，经 `filter_point_in_time` 过滤——禁止用未来公告的财务数据选股。
 
-##### test_factor_validity()
+其他：`FactorEffectivenessTester`（IC/IR 检验）、`PortfolioOptimizer`（Markowitz / 风险平价 / 最小方差）。
 
-因子有效性检验。
+### 3.4 StockSelector（`stock_selector.py`）
 
-```python
-validity = selector.test_factor_validity(factor_data)
-```
+单股绝对评分选股（0-100 分），权重与阈值外置 `config/stock_selector.json`。与 MFS 的 z-score 刻度不同，不合并。
 
-**返回：**
-```python
-{
-    'IC': 0.05,           # 信息系数
-    'IC_mean': 0.04,
-    'IC_std': 0.02,
-    'IR': 2.0,            # 信息比率
-    'p_value': 0.01       # 显著性水平
-}
-```
+### 3.5 其他
 
----
-
-## 6. 组合管理
-
-### PortfolioManager
-
-投资组合管理器。
-
-#### 初始化
-
-```python
-from portfolio_manager import PortfolioManager
-
-manager = PortfolioManager()
-```
-
-#### 方法
-
-##### create_portfolio()
-
-创建组合。
-
-```python
-portfolio_id = manager.create_portfolio(
-    name='我的策略',
-    cash=1000000
-)
-```
-
----
-
-##### add_position()
-
-添加持仓。
-
-```python
-manager.add_position(
-    portfolio_id=portfolio_id,
-    symbol='600519',
-    shares=100,
-    price=1800
-)
-```
-
----
-
-##### rebalance()
-
-组合再平衡。
-
-```python
-manager.rebalance(
-    portfolio_id=portfolio_id,
-    target_weights={
-        '600519': 0.3,
-        '000858': 0.3,
-        '002415': 0.4
-    }
-)
-```
-
----
-
-##### get_performance()
-
-获取绩效。
-
-```python
-performance = manager.get_performance(portfolio_id)
-```
-
----
-
-## 7. 实时监控
-
-### RealTimeMonitor
-
-实时股票监控和告警。
-
-#### 初始化
-
-```python
-from real_time_monitor import RealTimeMonitor, AlertCondition, AlertType, AlertPriority
-
-monitor = RealTimeMonitor()
-```
-
-#### 方法
-
-##### add_stock()
-
-添加监控股票。
-
-```python
-monitor.add_stock(
-    symbol='600519',
-    name='贵州茅台'
-)
-```
-
----
-
-##### add_condition()
-
-添加监控条件。
-
-```python
-condition = AlertCondition(
-    alert_type=AlertType.PRICE_ABOVE,
-    threshold=2000,
-    priority=AlertPriority.HIGH
-)
-monitor.add_condition('600519', condition)
-```
-
-**AlertType 枚举：**
-| 类型 | 说明 |
+| 模块 | 职责 |
 |------|------|
-| PRICE_ABOVE | 价格突破上限 |
-| PRICE_BELOW | 价格跌破下限 |
-| CHANGE_UP | 涨幅超限 |
-| CHANGE_DOWN | 跌幅超限 |
-| BREAKOUT_HIGH | 突破N日高点 |
-| BREAKOUT_LOW | 跌破N日低点 |
-| SIGNAL_BUY | 买入信号 |
-| SIGNAL_SELL | 卖出信号 |
-| VOLUME_SURGE | 成交量放大 |
-
-**AlertPriority 枚举：** LOW, MEDIUM, HIGH, URGENT
+| `long_term_selector.py` | 基本面长期持仓候选 |
+| `reversal_detector.py` + `reversal_rules.py` | 反转规则（实盘/回测共用同一规则实现） |
+| `market_regime_classifier.py` | 市场状态分类（驱动参数切换，不产买卖信号） |
+| `ml_predictor.py` | ML 涨跌预测（`MLPredictor` 分类 / `RegressionPredictor` 回归；`PredictionResult.to_signal()` 转信号契约） |
 
 ---
 
-##### check_conditions()
+## 4. 回测与优化层
 
-检查监控条件。
+### 4.1 BacktestEngine（引擎 A，`backtest_framework.py`）
+
+逐笔事件驱动回测。
 
 ```python
-alerts = monitor.check_conditions('600519')
-for alert in alerts:
-    print(alert.message)
+from backtest_framework import (BacktestEngine, PositionConfig,
+                                PositionSizingMethod, StopLossMethod)
+
+engine = BacktestEngine(initial_cash=1_000_000,
+                        position_config=PositionConfig(
+                            sizing_method=PositionSizingMethod.EQUAL_WEIGHT,
+                            stop_loss_method=StopLossMethod.FIXED_PERCENTAGE,
+                            stop_loss_pct=0.05))
+result = engine.run(data, strategy=ma_cross_strategy, symbol="600519",
+                    warmup_data=history_df)   # walk-forward 窗口预热
 ```
 
----
+成交约束：t+1 成交、涨跌停限制、手续费/印花税（经 `execution_model` 统一）；买入量受 `PositionConfig.max_volume_participation`（当日成交额参与率）限制。
 
-##### register_callback()
+### 4.2 VectorizedBacktester（引擎 B，`vectorized_backtest.py`）
 
-注册告警回调。
+向量化回测，日频 mark-to-market 权益曲线。
 
 ```python
-def my_handler(alert):
-    send_email(alert.message)
+from vectorized_backtest import VectorizedBacktester
 
-monitor.register_callback(my_handler)
+bt = VectorizedBacktester()
+result = bt.backtest(data, params, history=history_df,
+                     trading_calendar=calendar)   # 均可选
 ```
 
----
+`min_holding_days` 默认 0（不锁退出）；持仓期间的新买讯忽略。
 
-## 8. 数据可视化
+### 4.3 其他引擎
 
-### ChartVisualizer
+| 模块 | 说明 |
+|------|------|
+| `reversal_backtest.py` | 反转策略专用回测，复用 `reversal_rules` |
+| `multi_stock_backtester.py` | 多股并行回测编排 |
 
-图表可视化器。
+### 4.4 OptimizationEngine（`optimization_engine.py`）
 
-#### 初始化
+遗传算法参数优化，`seed=` 可复现。入口按优化模式区分：
 
 ```python
-from chart_visualizer import ChartVisualizer, ChartStyle
+from optimization_engine import OptimizationEngine, FitnessConfig
 
-visualizer = ChartVisualizer(
-    style=ChartStyle(),
-    output_dir="charts"
-)
+engine = OptimizationEngine(seed=42)
+engine.load_data(symbols=["600519", "000858"])
+result = engine.optimize_global(n_stocks=50)      # 全局一套参数
+# result = engine.optimize_by_regime(...)          # 按市场体制分参数
+# result = engine.optimize_robust(...)             # 多体制稳健
+# rounds  = engine.iterative_optimize(n_rounds=3)  # 迭代逐轮加严
 ```
 
-#### ChartStyle 配置
+关键口径：
+
+- **适应度只由样本内（IS）窗口计算**；walk-forward 末尾 `oos_ratio` 比例的窗口留作样本外（OOS），指标只报告、从不参与参数选择（`split_is_oos`）。
+- `confidence` = 适应度的 [0,1] 夹取（`confidence_from_fitness`），不是统计校准概率。
+- 逐股回测失败会被记账并按比例惩罚适应度；成功率低于 `min_success_rate` 时参数组作废。
+- 稳健性证据（试验次数、bootstrap）在 GA 结束后组装，只报告不扰动搜索。
+
+配置驱动：`OptimizationEngine(config=)` / CLI `run --config x.json`，参数空间定义在 `parameter_space.py`，结果落盘 `best_params.json`（含参数空间指纹）供信号层下发。
+
+### 4.5 HistoricalBacktestValidator（`historical_backtest_validator.py`）
+
+历史验证链：用历史数据检验"参数拟合区间之后"的真实表现。**本模块不做回测**——只做验证编排与样本外隔离检查，回测本身委托上述引擎。
+
+### 4.6 策略优化器（`strategy_optimizer.py`）
+
+独立的策略模板参数搜索（网格 / 随机 / 边界采样），与 GA 引擎互补：
 
 ```python
-style = ChartStyle()
-style.up_color = '#FF4444'        # 上涨颜色
-style.down_color = '#00AA00'      # 下跌颜色
-style.figure_size = (14, 8)       # 图表尺寸
-style.dpi = 100                   # 分辨率
-```
-
----
-
-#### 方法
-
-##### plot_candlestick()
-
-绘制K线图。
-
-```python
-path = visualizer.plot_candlestick(
-    data=df,
-    symbol='600519',
-    title='贵州茅台 - 日K线',
-    ma_periods=[5, 10, 20, 60]
-)
-```
-
----
-
-##### plot_macd()
-
-绘制MACD图。
-
-```python
-path = visualizer.plot_macd(data=df, symbol='600519')
+from strategy_optimizer import StrategyOptimizer, MAStrategy
+result = StrategyOptimizer(strategy=MAStrategy()).grid_search(
+    data, param_grid={"short_period": [5, 10], "long_period": [20, 60]})
 ```
 
 ---
 
-##### plot_equity_curve()
+## 5. 执行与风控层
 
-绘制收益曲线。
-
-```python
-path = visualizer.plot_equity_curve(
-    equity_curve=equity_data,
-    symbol='我的策略',
-    benchmark_return=15.0
-)
-```
+| 模块 | 职责 |
+|------|------|
+| `execution_model.py` | t+1 成交、涨跌停限制、费用模型（四回测引擎共用）；停牌日无行情日历则不虚构成交 |
+| `trade_constraints.py` | 下单前约束检查（停牌/数据过期/涨跌停），输出 `ConstraintReport` |
+| `portfolio_manager.py` | 组合持仓、集中度/现金闸门、再平衡、绩效报告 |
+| `risk_management.py` | `StopLossManager` / `PortfolioRiskMonitor` |
+| `position_analyzer.py` | 单股持仓分析（盈亏、技术状态、MACD 交叉判定、t+1 提示） |
+| `core/trading_calendar.py` | 交易日历（由指数行情反推）与停牌识别 |
+| `core/signal.py` / `core/fetch_result.py` | 信号契约 / 取数结果契约 |
 
 ---
 
-##### plot_combined_analysis()
+## 6. Web 应用
 
-绘制综合分析图（6合1）。
-
-```python
-path = visualizer.plot_combined_analysis(data=df, symbol='600519')
+```bash
+python run_web_app.py        # 或 streamlit run .claude/skills/web_app.py
 ```
+
+页面：仪表盘、数据分析（K 线/指标/信号）、策略回测、组合管理、实时监控、历史验证。可选依赖缺失时如实降级（核心 import 不依赖 streamlit）。
 
 ---
 
 ## 附录：数据格式
 
-### 股票行情数据格式
+行情 DataFrame（标准列名）：
 
-```python
-DataFrame({
-    '日期': datetime,
-    '开盘': float,
-    '最高': float,
-    '最低': float,
-    '收盘': float,
-    '成交量': float,
-    '涨跌幅': float  # 可选
-})
+```
+日期(datetime) 开盘 最高 最低 收盘 成交量 成交额 涨跌幅
 ```
 
-### 信号数据格式
+信号契约 `Signal` 与选股契约 `Selection` 的完整字段定义见 `core/signal.py`。
 
-```python
-DataFrame({
-    '日期': datetime,
-    'signal_buy': bool,      # 买入信号
-    'signal_sell': bool,     # 卖出信号
-    'signal_strength': float # 信号强度
-})
-```
-
----
-
-**文档版本：** v1.0
-**最后更新：** 2026-02-06
+复权落库：`{symbol}.parquet`（不复权）/ `{symbol}_qfq.parquet` / `{symbol}_hfq.parquet`，元数据记录口径。

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-反转规则单一真相源 (审计 C-P1-13)
+反转规则单一真相源
 
 reversal_detector (实盘预警) 与 reversal_backtest (回测) 旧版各持一套
 阈值/指标 (回测缺 RSI24/ROC/ATR/Vol_MA20, 阈值与背离窗口均不同),

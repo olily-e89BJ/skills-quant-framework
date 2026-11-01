@@ -46,9 +46,9 @@ class StockSelector:
 
         Args:
             fetcher: StockDataFetcher实例
-            config: 打分配置 dict; None 时读 config/stock_selector.json (C-P1-11 Step2),
+            config: 打分配置 dict; None 时读 config/stock_selector.json,
                 配置缺失回退内置默认 (与历史硬编码逐位一致)
-            data_dir: 本地缓存目录 (审计 H4: 热门榜改数据驱动 → 读本地缓存)
+            data_dir: 本地缓存目录 (热门榜改数据驱动 → 读本地缓存)
         """
         self.fetcher = fetcher if fetcher else StockDataFetcher()
         self.analyzer = PositionAnalyzer(fetcher)
@@ -78,7 +78,7 @@ class StockSelector:
                 if data is None or len(data) < 40:
                     continue
 
-                # 审计 C-P1-12: 前置过滤 — 一字涨停/停牌嫌疑/最低价不进推荐
+                # 前置过滤 — 一字涨停/停牌嫌疑/最低价不进推荐
                 if not trade_constraints.check_last_bar(
                         data, code=symbol, side='buy').ok:
                     continue
@@ -122,7 +122,7 @@ class StockSelector:
                 if data is None or len(data) < 40:
                     continue
 
-                # 审计 C-P1-12: 前置过滤 — 一字涨停/停牌嫌疑/最低价不进推荐
+                # 前置过滤 — 一字涨停/停牌嫌疑/最低价不进推荐
                 if not trade_constraints.check_last_bar(
                         data, code=symbol, side='buy').ok:
                     continue
@@ -183,7 +183,7 @@ class StockSelector:
         """
         获取"热门"股票 (近期表现前列者)
 
-        审计 H4: 旧实现是**手写的 35 只热门板块名单** (ai/chip/new_energy/
+        早期实现是**手写的 35 只热门板块名单** (ai/chip/new_energy/
         military/consumer/finance/tmt 各 5 只) —— 人工挑的名单与**任何
         日期无关** → 历史回测里等于"用今天的名单回测过去", 是硬编码
         前视 + 幸存者偏差; 且名单会随时间腐化 (无人维护)。
@@ -196,7 +196,7 @@ class StockSelector:
             market: 市场范围 ('sh'=上海, 'sz'=深圳, 'all'=全部)
             count: 返回数量
             as_of: point-in-time 截止日 (None = 最新视角); 给出时只用
-                该日之前的数据排序 (审计 H4)
+                该日之前的数据排序
             period: 排名周期(交易日)
             universe: 候选池 (None → 取本地缓存股票池)
 
@@ -239,7 +239,7 @@ class StockSelector:
         return results[:count]
 
     def _hot_candidate_pool(self, universe=None, as_of=None) -> list:
-        """热门榜候选池 = 本地缓存股票池 (审计 H4: 不用手写名单)。"""
+        """热门榜候选池 = 本地缓存股票池 (不用手写名单)。"""
         if universe is not None:
             pool = list(universe)
         else:
@@ -396,7 +396,7 @@ def select_stocks(stock_list, min_score=60, max_count=5):
 def get_hot_stocks(market='all', count=10, as_of=None, period=20,
                    universe=None, data_dir='./stock_data'):
     """
-    获取热门股票 (近期表现前列者; 审计 H4: 数据驱动, 不用手写名单)
+    获取热门股票 (近期表现前列者; 数据驱动, 不用手写名单)
 
     Args:
         market: 市场范围
@@ -431,7 +431,7 @@ def rank_by_performance(stock_list, period=20):
 
 # 测试
 def to_selections(results: list, as_of=None) -> list:
-    """screen_stocks 结果 → 统一契约 Selection 列表 (审计 C #9b).
+    """screen_stocks 结果 → 统一契约 Selection 列表.
 
     Args:
         results: `screen_stocks` 返回的 list[dict]
@@ -441,7 +441,7 @@ def to_selections(results: list, as_of=None) -> list:
 
     Returns:
         list[core.signal.Selection]; screen_stocks 已在入口丢弃
-        交易约束阻断标的 (C-P1-12), 故入选项 executable=True。
+        交易约束阻断标的, 故入选项 executable=True。
     """
     from core.signal import SCALE_SCORE, Selection, normalize_date
 
@@ -462,17 +462,17 @@ def to_selections(results: list, as_of=None) -> list:
 
 
 def to_selections(results: list, as_of=None) -> list:
-    """screen_stocks 结果 → 统一契约 Selection 列表 (审计 C #9b).
+    """screen_stocks 结果 → 统一契约 Selection 列表.
 
     Args:
         results: `screen_stocks` 返回的 list[dict]
             ({symbol, score, price, change_1d, change_5d}, 已按分降序)
         as_of: 选股基准日; None = '' — SS 用实盘实时数据, 无 point-in-time
-            语义 (审计 L10 待修), 契约如实留空不伪造基准日
+            语义, 契约如实留空不伪造基准日
 
     Returns:
         list[core.signal.Selection]; screen_stocks 已在入口丢弃交易约束
-        阻断标的 (C-P1-12), 故入选项 executable=True。
+        阻断标的, 故入选项 executable=True。
     """
     from core.signal import SCALE_SCORE, Selection, normalize_date
 

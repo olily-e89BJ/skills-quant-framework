@@ -60,13 +60,13 @@ class ReversalAlert:
     # 操作建议
     action: str
 
-    # 交易约束前置检查 (审计 C-P1-12): False = 停牌/涨跌停/流动性阻断
+    # 交易约束前置检查: False = 停牌/涨跌停/流动性阻断
     executable: bool = True
     blocked_reasons: List[str] = field(default_factory=list)
     skipped_checks: List[str] = field(default_factory=list)
 
     def to_signal(self, signal_date=None, execute_at=None):
-        """→ 统一契约 Signal (审计 C #9b).
+        """→ 统一契约 Signal.
 
         映射: alert_type BUY→BUY / SELL→SELL / WATCH→HOLD (观察不动作);
         strength = confidence (0-100, 无符号 scale='score' — 方向由 action
@@ -108,7 +108,7 @@ class ReversalAlert:
         )
 
     def to_signal(self, signal_date=None, execute_at=None):
-        """→ 统一契约 Signal (审计 C #9b).
+        """→ 统一契约 Signal.
 
         映射: alert_type BUY→BUY / SELL→SELL / WATCH→HOLD (观察不动作);
         strength = confidence (0-100, 无符号 scale='score' — 方向由 action
@@ -160,7 +160,7 @@ class ReversalDetector:
 
     @property
     def data_manager(self):
-        """共享数据层 (审计 M20: 统一走本层取数)。"""
+        """共享数据层 (统一走本层取数)。"""
         if self._data_manager is None:
             from historical_data_manager import HistoricalDataManager
             self._data_manager = HistoricalDataManager(self.data_dir)
@@ -169,10 +169,10 @@ class ReversalDetector:
     def get_stock_data(self, code: str, days: int = 250,
                         adjust: str = DEFAULT_ADJUST,
                         as_of: str = None) -> Optional[pd.DataFrame]:
-        """获取股票数据 (走**共享数据层**, 审计 M20)
+        """获取股票数据 (走**共享数据层**)
 
         旧实现自行调 `fetch_daily`: 无复权维度 / 无 as_of / 失败静默返回
-        None / 无交易日历 → 与 P0-4 口径矛盾 (且除权跳空会污染反转判定)。
+        None / 无交易日历 → 与复权维度口径矛盾 (且除权跳空会污染反转判定)。
         现统一走 `HistoricalDataManager.get_daily_result`: 复权维度 +
         参考日 + FetchResult (失败带原因) + 交易日历窗口。
         复权维度默认 'hfq' 后复权 (DEFAULT_ADJUST, 产品决策 2026-10-30)。
@@ -189,7 +189,7 @@ class ReversalDetector:
         close = df['收盘']
         high = df['最高']
         low = df['最低']
-        # 共享指标引擎 (审计 #10): 公式唯一来源 core.indicators
+        # 共享指标引擎: 公式唯一来源 core.indicators
         # 注: KDJ/MACD 旧实现用 ewm(adjust=True) (pandas 默认), 与全仓其余
         # 10+ 站点的 adjust=False 递归口径分裂 —— 此处统一为 core 口径,
         # reversal 两模块的 K/D/J/MACD 数值随之变化 (已在 AGENTS.md 留档)。
@@ -362,11 +362,11 @@ class ReversalDetector:
         else:
             action = '继续观望'
 
-        # 审计 C-P1-12: 前置可执行性检查 (方向按预警类型)
+        # 前置可执行性检查 (方向按预警类型)
         side = {'BUY': 'buy', 'SELL': 'sell'}.get(alert_type, 'both')
         constraint = trade_constraints.check_last_bar(
             df, code=code, side=side)
-        # 审计 C #9 收口: 约束字段统一装配 (不再各模块手拼)
+        # 约束字段统一装配 (不在各模块手拼)
         cfields = constraint.as_signal_fields()
 
         return ReversalAlert(
@@ -389,7 +389,7 @@ class ReversalDetector:
         """批量分析股票
 
         Args:
-            top: 只保留置信度最高的前 N 条 (None=不限制; 审计 L7: CLI --top 此前
+            top: 只保留置信度最高的前 N 条 (None=不限制; CLI --top 此前
                  解析后从未生效)
         """
         print()
@@ -410,7 +410,7 @@ class ReversalDetector:
                 results.append(alert)
                 print(f'{alert.alert_type} ({alert.confidence:.0f}分)')
             elif alert:
-                # 审计 C-P1-12: 交易约束剔除不进预警列表
+                # 交易约束剔除不进预警列表
                 reason = alert.blocked_reasons[0] \
                     if alert.blocked_reasons else '不可执行'
                 print(f'SKIP ({reason})')

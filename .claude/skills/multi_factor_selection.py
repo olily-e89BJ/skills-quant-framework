@@ -21,7 +21,7 @@ import trade_constraints
 
 
 def filter_point_in_time(financial_df: pd.DataFrame, as_of) -> pd.DataFrame:
-    """point-in-time 财务数据契约 (审计 C-P0-7 止血版)
+    """point-in-time 财务数据契约
 
     只保留『公告日 ≤ as_of』的财报行 — 消除两类泄露:
     ①使用后来重述的财报值; ②把尚未公告的财报当作当日可得。
@@ -39,13 +39,13 @@ def filter_point_in_time(financial_df: pd.DataFrame, as_of) -> pd.DataFrame:
     """
     if '公告日' not in financial_df.columns:
         raise ValueError(
-            "point-in-time 财务契约(C-P0-7): financial_df 缺少『公告日』列, "
+            "point-in-time 财务契约: financial_df 缺少『公告日』列, "
             "拒绝运行 — 无公告日无法判断财报是否已披露, 直接使用会引入"
             "未来信息泄露。请在数据层补充公告日后再调用 select_stocks。"
         )
     if as_of is None:
         raise ValueError(
-            "point-in-time 财务契约(C-P0-7): 必须提供 as_of 截止日"
+            "point-in-time 财务契约: 必须提供 as_of 截止日"
             "(回测/选股当前日期), 否则无法按『公告日 ≤ as_of』过滤。"
         )
 
@@ -58,7 +58,7 @@ def filter_point_in_time(financial_df: pd.DataFrame, as_of) -> pd.DataFrame:
 def forward_returns(close: pd.Series) -> pd.Series:
     """构造**前瞻收益**标签 (t → t+1) —— 因子拟合的标签口径唯一真相源。
 
-    审计 H6: 因子权重拟合的标签语义必须是"因子在 t 观测到 → t+1 的收益"。
+    因子权重拟合的标签语义必须是"因子在 t 观测到 → t+1 的收益"。
     旧实现把 `returns` 的语义搞混: `ic_weights` 按前瞻同期配对 ✓, 而
     `max_sharpe_weights` / `risk_parity_weights` 用
     `factor_data[col].shift(-1) * aligned_returns` → 那是沿 **index**
@@ -84,7 +84,7 @@ class FactorTestResult:
     t_stat: float            # t统计量
     p_value: float           # p值
     is_significant: bool     # 是否显著 (5%水平)
-    # 审计 H6: 口径自证 —— 'cross_section' (同期配对, 单截面, 无时序统计)
+    # 口径自证 —— 'cross_section' (同期配对, 单截面, 无时序统计)
     # / 'time_series' (滚动 IC, 需时间索引)
     mode: str = 'cross_section'
 
@@ -103,7 +103,7 @@ class FactorWeightingMethod:
                returns: pd.Series) -> tuple:
         """因子与收益的**同期配对** (同一行 = 同一只股票/同一期)。
 
-        审计 H6: 旧实现用 `factor_data[col].shift(-1) * aligned_returns`
+        历史上曾用 `factor_data[col].shift(-1) * aligned_returns`
         —— 那是沿 **index** 错行一格, 把"下一只股票的收益"当成了
         "下一期的收益" → 权重结果**依赖行序**, 且含未来信息 (前瞻)。
         本方法是全仓唯一的配对入口: 同期配对, 无 shift。
@@ -138,7 +138,7 @@ class FactorWeightingMethod:
     def ic_weights(factors_df: pd.DataFrame, returns: pd.Series) -> Dict[str, float]:
         """IC 加权权重（|IC| 归一化；样本不足或总 IC 为 0 → 等权）
 
-        审计 H6: 同期配对 (因子[t] 对前瞻收益[t]) —— 口径由
+        同期配对 (因子[t] 对前瞻收益[t]) —— 口径由
         `_align` 统一, 不再各写各的 shift。
         """
         factor_cols = FactorWeightingMethod._valid_score_cols(factors_df)
@@ -205,10 +205,10 @@ class FactorWeightingMethod:
         最大夏普比率优化权重
         优化权重使因子组合夏普比率最大（样本不足 → 等权）
 
-        审计 H6: 因子收益 = 因子值 × **同期**前瞻收益 (同一行 = 同一只
+        因子收益 = 因子值 × **同期**前瞻收益 (同一行 = 同一只
         股票); 旧实现沿 index 错行 shift → 结果依赖行序且含未来信息。
         """
-        # 提取因子数据 (审计 H6: 同期配对, 无 shift)
+        # 提取因子数据 (同期配对, 无 shift)
         factor_data, aligned_returns = FactorWeightingMethod._align(
             factors_df, returns)
         factor_cols = list(factor_data.columns)
@@ -224,7 +224,7 @@ class FactorWeightingMethod:
             # 因子收益 = 该因子值 × 该股**前瞻收益** (同期配对: 同一行
             # = 同一只股票/同一期)。旧实现是 `factor_data[col].shift(-1)
             # * aligned_returns` —— 沿 index 错行一格, 把"下一只股票的
-            # 收益"当成"下一期收益" (审计 H6: 结果依赖行序 + 含未来信息)
+            # 收益"当成"下一期收益" (结果依赖行序 + 含未来信息)
             factor_returns[col] = factor_data[col] * aligned_returns
 
         factor_returns = factor_returns.dropna()
@@ -281,7 +281,7 @@ class FactorWeightingMethod:
         if n_factors == 0:
             return {}
 
-        # 提取因子数据 (审计 H6: 同期配对, 无 shift)
+        # 提取因子数据 (同期配对, 无 shift)
         factor_data, aligned_returns = FactorWeightingMethod._align(
             factors_df, returns)
         factor_cols = list(factor_data.columns)
@@ -292,7 +292,7 @@ class FactorWeightingMethod:
         # 计算因子收益协方差矩阵
         factor_returns = pd.DataFrame()
         for col in factor_cols:
-            # 因子收益 = 因子值 × 同期前瞻收益 (审计 H6: 旧实现
+            # 因子收益 = 因子值 × 同期前瞻收益 (
             # `.shift(-1)` 沿 index 错行 → 结果依赖行序 + 含未来信息)
             factor_returns[col] = factor_data[col] * aligned_returns
 
@@ -454,7 +454,7 @@ class FactorEffectivenessTester:
                                   method: str = 'pearson') -> FactorTestResult:
         """横截面口径的因子检验 (同期配对, 单一截面)。
 
-        审计 H6: 旧 `test_all_factors` 用 `factors_df[col].shift(1)` ——
+        历史上 `test_all_factors` 曾用 `factors_df[col].shift(1)` ——
         那是沿 **index** 错行一格 (股票轴!), 把"上一只股票的因子"当成
         "上一期因子" → IC 完全无意义 (且随行序变化)。横截面下正确的
         配对是**同期**: 因子[i] 对该股前瞻收益[i]。
@@ -495,7 +495,7 @@ class FactorEffectivenessTester:
         """
         测试所有因子的有效性
 
-        审计 H6: 口径显式化 —— 旧实现对**同一份** `returns` 用三种配对
+        口径显式化 —— 对**同一份** `returns` 用三种配对
         (`ic_weights` 同期 / `test_all_factors` `.shift(1)` 错行 /
         `max_sharpe_weights` `.shift(-1)` 错行+前瞻), 互相矛盾。
 
@@ -525,7 +525,7 @@ class FactorEffectivenessTester:
                     '横截面请用 window=None (默认)')
 
         for col in factor_cols:
-            # 同期配对 (审计 H6: 不再沿 index 错行 shift)
+            # 同期配对 (不沿 index 错行 shift)
             factor_values = factors_df[col]
             aligned_idx = factor_values.notna() & returns.notna()
 
@@ -651,7 +651,7 @@ class FactorModels:
         成长因子
         营收增长率、利润增长率、净利率等成长性指标
 
-        审计 C-P1-14: ROE/毛利率原在 growth 与 quality 双计 (合计有效权重
+        ROE/毛利率若在 growth 与 quality 双计 (合计有效权重
         18.3% 隐性重复) — 已移除, 盈利水平指标统一归 quality_factor。
         Net_Margin 非重复计权, 保留 (盈利水平但仅本块使用)。
 
@@ -735,7 +735,7 @@ class FactorModels:
         """
         将价格输入归一化为“股票×日期”横截面面板（index=股票码, columns=日期）。
 
-        委托 factor_library.to_close_panel (C-P1-11 因子库统一);
+        委托 factor_library.to_close_panel (因子库统一);
         保留方法名兼容既有调用/测试。
         """
         return factor_library.to_close_panel(price_df)
@@ -810,7 +810,7 @@ class MultiFactorSelector:
 
         Args:
             factor_weights: 因子权重，如 {'value': 0.3, 'growth': 0.3, 'quality': 0.2, 'momentum': 0.2}
-                None 时读 config/multi_factor.json (C-P1-11 Step2); 配置缺失回退内置默认
+                None 时读 config/multi_factor.json; 配置缺失回退内置默认
             weighting_method: 加权方法 ('custom' 使用 factor_weights 配置[默认],
                 'equal' 等权, 'ic', 'ir', 'max_sharpe', 'risk_parity')
                 None 时读配置文件; 配置缺失回退 'custom'
@@ -838,7 +838,7 @@ class MultiFactorSelector:
         # 存储历史IC用于IR加权
         self.ic_history: Dict[str, List[float]] = {}
 
-        # 审计 H6: 最近一次权重拟合的口径自证 (in_sample / n_fit_rows)
+        # 最近一次权重拟合的口径自证 (in_sample / n_fit_rows)
         self.last_weight_fit: Dict[str, object] = {}
 
     def calculate_factors(self, financial_df: pd.DataFrame,
@@ -903,7 +903,7 @@ class MultiFactorSelector:
         """
         计算综合得分
 
-        审计 H6 (样本内 vs 样本外): 动态加权方法的权重是用**标签**拟合的,
+        样本内 vs 样本外: 动态加权方法的权重是用**标签**拟合的,
         若用被评分截面自己的标签去拟合 → **样本内** (权重天然被高估,
         选出的"最优"截面是拟合产物而非预测)。旧实现对此**完全沉默**。
 
@@ -1021,11 +1021,11 @@ class MultiFactorSelector:
         选股
 
         Args:
-            financial_df: 财务数据 (必须含『公告日』列, C-P0-7 point-in-time 契约)
+            financial_df: 财务数据 (必须含『公告日』列, point-in-time 契约)
             price_df: 价格数据 (可选)
             top_n: 返回前N只股票
             min_score: 最低得分要求 (None表示不限制)
-            returns: 前瞻收益标签 (用于动态加权; **样本内** → 见审计 H6)
+            returns: 前瞻收益标签 (用于动态加权; **样本内**)
             as_of: 截止日 (必填: 只使用公告日 ≤ as_of 的财报)
             fit_returns: 用于拟合权重的标签 (历史期 → 样本外拟合)
             fitted_weights: 已拟合好的权重 (来自历史样本 → 直接套用)
@@ -1036,7 +1036,7 @@ class MultiFactorSelector:
         Raises:
             ValueError: 缺『公告日』列或未提供 as_of (拒绝静默泄露)
         """
-        # C-P0-7: 按公告日过滤, 拒绝无公告日/无截止日的调用
+        # 按公告日过滤, 拒绝无公告日/无截止日的调用
         financial_df = filter_point_in_time(financial_df, as_of)
 
         # 计算因子
@@ -1045,13 +1045,13 @@ class MultiFactorSelector:
         if len(factors_df.columns) == 0:
             return pd.DataFrame()
 
-        # 计算综合得分 (审计 H6: 样本内/样本外口径显式化)
+        # 计算综合得分 (样本内/样本外口径显式化)
         composite_score = self.get_composite_score(
             factors_df, returns,
             fitted_weights=fitted_weights, fit_returns=fit_returns)
         factors_df['Composite_Score'] = composite_score
 
-        # 审计 C-P1-12: 收盘面板前置过滤 (min_price + 最新交易日缺数据;
+        # 收盘面板前置过滤 (min_price + 最新交易日缺数据;
         # 一字板需高低价、ADV 需成交额 — 仅收盘面板时不伪造检查)。
         # 在排序/截断前过滤, 保证 top_n 由可执行标的填满。
         if price_df is not None and len(factors_df) > 0:
@@ -1072,7 +1072,7 @@ class MultiFactorSelector:
         else:
             selected = factors_df.head(top_n)
 
-        # 审计 H6: 权重拟合口径随结果一起返回 (in_sample / n_fit_rows)
+        # 权重拟合口径随结果一起返回 (in_sample / n_fit_rows)
         selected.attrs['weight_fit'] = dict(self.last_weight_fit)
 
         return selected
@@ -1142,7 +1142,7 @@ class MultiFactorSelector:
         """
         优化因子权重
 
-        审计 H6: 权重是在**给定样本**上拟合的 —— 调用方必须保证"拟合样本"
+        权重是在**给定样本**上拟合的 —— 调用方必须保证"拟合样本"
         与"应用样本"不重叠 (否则是样本内, 权重偏乐观)。返回的权重**不含**
         口径信息, 应用侧请用 `get_composite_score(..., fit_returns=...)` 或
         `fitted_weights=...` 显式声明样本外, 或接受 in_sample 标记。
@@ -1468,8 +1468,8 @@ def multi_factor_select(financial_df, price_df=None, top_n=20, weighting_method=
                         fitted_weights=None):
     """多因子选股（默认 'custom'：使用构造器默认 factor_weights）
 
-    as_of 必填 (C-P0-7): 只使用公告日 ≤ as_of 的财报。
-    审计 H6: 动态加权方法 (ic/max_sharpe/risk_parity) 需要收益标签 ——
+    as_of 必填: 只使用公告日 ≤ as_of 的财报。
+    动态加权方法 (ic/max_sharpe/risk_parity) 需要收益标签 ——
     用 `returns` 拟合即**样本内** (如实标记 + 告警); 要样本外请传
     `fit_returns` (历史期标签) 或 `fitted_weights` (已拟合权重)。
     """
@@ -1509,7 +1509,7 @@ def optimize_portfolio_min_variance(returns_df):
 
 def to_selections(result_df: pd.DataFrame, as_of=None,
                   selected: bool = True) -> list:
-    """select_stocks 结果 → 统一契约 Selection 列表 (审计 C #9b).
+    """select_stocks 结果 → 统一契约 Selection 列表.
 
     Args:
         result_df: `select_stocks` 返回的因子+综合分 DataFrame
@@ -1556,7 +1556,7 @@ def to_selections(result_df: pd.DataFrame, as_of=None,
 
 def to_selections(result_df: pd.DataFrame, as_of=None,
                   selected: bool = True) -> list:
-    """select_stocks 结果 → 统一契约 Selection 列表 (审计 C #9b).
+    """select_stocks 结果 → 统一契约 Selection 列表.
 
     Args:
         result_df: `select_stocks` 返回的因子+综合分 DataFrame

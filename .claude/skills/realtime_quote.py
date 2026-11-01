@@ -149,7 +149,7 @@ class RealTimeQuoteAPI:
             content = response.text.strip()
 
             # 解析每只股票
-            # (审计 A-P1-4: 按内容中的代码正则匹配, 不用行号 —
+            # (按内容中的代码正则匹配, 不用行号 —
             #  否则 API 少返回一只/多出空行 → 后续全体错位静默污染)
             results = {}
             orig_by_fmt = {fmt: orig for orig, fmt in zip(codes, formatted_codes)}

@@ -44,7 +44,7 @@ class WalkForwardConfig:
     train_days: int = 504       # 约2年
     test_days: int = 180        # 约6个月
     step_days: int = 63         # 约3个月
-    # 审计 H1 (真样本外隔离): 末尾 oos_ratio 比例的回测窗口留作**样本外 (OOS)**,
+    # 样本外隔离: 末尾 oos_ratio 比例的回测窗口留作**样本外 (OOS)**,
     # **从不参与参数选择** —— 旧实现 GA 在全部窗口上既评估又取最大,
     # "样本外"窗口实为样本内。0 = 关闭隔离 (退回旧行为, 仅供对照)。
     oos_ratio: float = 0.3
@@ -54,7 +54,7 @@ class WalkForwardConfig:
 class FitnessConfig:
     """适应度函数配置
 
-    注: 原 target_probability (目标达标概率) 字段已删 (审计 M2) ——
+    注: 原 target_probability (目标达标概率) 字段已删 ——
     接收/存储/校验/落盘俱全, 但 _compute_fitness 从未使用 (死配置)。
     若需要机会约束型适应度, 应显式设计并接入 fitness 公式, 而非留死字段。
     """
@@ -65,7 +65,7 @@ class FitnessConfig:
     w_return: float = 0.25
     w_sharpe: float = 0.20
     w_drawdown: float = 0.15
-    # 审计 M5: 逐股回测失败 → 该股不参与适应度 → 参数组可能只在**更少样本**
+    # 逐股回测失败 → 该股不参与适应度 → 参数组可能只在**更少样本**
     # 上被评估 (旧实现静默 except: continue, 无失败计数也无惩罚)。现在
     # 失败率 > (1 - min_success_rate) 的参数组**直接归零** (不可用),
     # 介于两者之间按 success_rate 比例打折。0 = 关闭硬门槛 (仅比例打折)。
@@ -84,7 +84,7 @@ class RegimeConfig:
 
 @dataclass
 class RobustnessConfig:
-    """稳健性/多重检验证据配置 (审计 H10)
+    """稳健性/多重检验证据配置
 
     优化 = 在同一批 IS 窗口上重复评估后取最大 → 天然存在多重比较
     (最优 fitness 偏乐观)。这些字段控制**落盘证据**的采样规模;
@@ -122,7 +122,7 @@ class OptimizationConfig:
     walk_forward: WalkForwardConfig = field(default_factory=WalkForwardConfig)
     fitness: FitnessConfig = field(default_factory=FitnessConfig)
     regime: RegimeConfig = field(default_factory=RegimeConfig)
-    # 审计 H10: 稳健性证据采样规模 (试验次数/随机基线/Top-k/ bootstrap)
+    # 稳健性证据采样规模 (试验次数/随机基线/Top-k/ bootstrap)
     robustness: RobustnessConfig = field(default_factory=RobustnessConfig)
 
     # 多轮迭代配置
@@ -147,7 +147,7 @@ class OptimizationConfig:
     # 优化模式
     mode: str = "full"  # "global", "regime", "robust", "iterative", "full"
 
-    # 信号引擎模式 (审计 E-P1 死维度接线): True=4 因子加权评分
+    # 信号引擎模式: True=4 因子加权评分
     # (score_*_threshold 触发, 参数空间 6 个评分维参与 fitness),
     # False=投票制 (buy/sell_threshold, 优化器旧基线)
     use_weighted_scoring: bool = True
@@ -192,7 +192,7 @@ class OptimizationConfig:
 
     @staticmethod
     def _filter_known(cls, raw: dict, label: str) -> dict:
-        """丢弃未知键的存量 JSON 兼容层 (审计 M2 配套)
+        """丢弃未知键的存量 JSON 兼容层
 
         删除死配置字段后, 旧版保存的 JSON 仍含该键; dataclass 构造器会
         TypeError 拒绝。这里显式过滤并 WARN —— 与"静默忽略"不同, 调用方

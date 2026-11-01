@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""存量历史数据清洗工具（审计 P0-4: 单位统一 + 复权维度化 + 存量数据清洗）。
+"""存量历史数据清洗工具（单位统一 + 复权维度化 + 存量数据清洗）。
 
-背景（A 报告 R4/P0-4）:
+背景:
     落库主路径 `ak.stock_zh_a_daily` 成交量单位=**股**、成交额单位=**元**、
     复权=**不复权**；而备用路径 `ak.stock_zh_a_hist` 成交量单位=**手**、
     复权默认曾为 **qfq**。同一份落库数据可能混入不同单位/不同复权口径的片段:
@@ -37,7 +37,7 @@ import pandas as pd
 from core.dataframe import (OHLCV_COLUMN_MAP, change_pct,
                             ensure_change_pct)
 
-# 列名别名: OHLCV 部分派生自共享映射 (审计 M19, 唯一真相源),
+# 列名别名: OHLCV 部分派生自共享映射 (唯一真相源),
 # 另加本工具特有的两个别名
 COLUMN_ALIASES = {
     **OHLCV_COLUMN_MAP,
@@ -191,7 +191,7 @@ def clean_ohlcv_frame(df: pd.DataFrame, adjust: str = ''
             report['actions'].append('成交额单位 万元→元 (×10000)')
 
     if '收盘' in out.columns and '涨跌幅' not in out.columns:
-        # CSV 路径: 收盘价可能是字符串 → 需转数值 (共享单一真相源, 审计 M19)
+        # CSV 路径: 收盘价可能是字符串 → 需转数值 (共享单一真相源)
         out = ensure_change_pct(out, coerce=True)
         report['actions'].append('补算 涨跌幅 列')
 

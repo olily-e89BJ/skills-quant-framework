@@ -38,7 +38,7 @@ class OptimizationResult:
 
 @dataclass
 class StrategyOptimizationConfig:
-    """策略优化器自身的配置 (审计 L9)。
+    """策略优化器自身的配置。
 
     注: 本类原先叫 `OptimizationConfig` —— 与 `optimization_config.py` 里的
     同名类**同名不同形** (那边是完整优化配置: data/ga/fitness/walk_forward/
@@ -87,7 +87,7 @@ class StrategyTemplate:
     PARAM_DIMS: tuple = ()
 
     def get_param_grid(self) -> Dict[str, List]:
-        """参数网格 —— **派生自 `ParameterSpace`** (审计 L1)。
+        """参数网格 —— **派生自 `ParameterSpace`**。
 
         旧实现由各策略手写网格 → 参数名与范围都和规范定义漂移
         (`short_period` vs `ma_fast` 等), 且 `sell_threshold` 符号相反
@@ -107,7 +107,7 @@ class MAStrategy(StrategyTemplate):
         super().__init__("MA交叉")
 
     def generate_signals(self, data: pd.DataFrame, params: Dict) -> pd.DataFrame:
-        """生成MA交叉信号 (参数名用规范名, 审计 L1)"""
+        """生成MA交叉信号 (参数名用规范名)"""
         short_period = params.get('ma_fast', 5)
         long_period = params.get('ma_slow', 20)
 
@@ -140,7 +140,7 @@ class MACDStrategy(StrategyTemplate):
         super().__init__("MACD")
 
     def generate_signals(self, data: pd.DataFrame, params: Dict) -> pd.DataFrame:
-        """生成MACD信号 (参数名用规范名, 审计 L1)"""
+        """生成MACD信号 (参数名用规范名)"""
         fast = params.get('macd_fast', 12)
         slow = params.get('macd_slow', 26)
         signal_period = params.get('macd_signal', 9)
@@ -175,7 +175,7 @@ class RSIStrategy(StrategyTemplate):
         super().__init__("RSI")
 
     def generate_signals(self, data: pd.DataFrame, params: Dict) -> pd.DataFrame:
-        """生成RSI信号 (参数名用规范名, 审计 L1)"""
+        """生成RSI信号 (参数名用规范名)"""
         period = params.get('rsi_period', 14)
         oversold = params.get('rsi_oversold', 30)
         overbought = params.get('rsi_overbought', 70)
@@ -208,7 +208,7 @@ class MultiFactorStrategy(StrategyTemplate):
         super().__init__("多因子")
 
     def generate_signals(self, data: pd.DataFrame, params: Dict) -> pd.DataFrame:
-        """生成综合信号 (审计 L1)。
+        """生成综合信号。
 
         阈值口径统一到 `signal_generator` 的**投票制分值刻度**
         (buy_score ≥ buy_threshold / sell_score ≥ sell_threshold, 均为正) →
@@ -446,7 +446,7 @@ class StrategyOptimizer:
         """
         边界内均匀随机采样优化（原名 bayesian_optimize）
 
-        审计 E-P1: 旧名 bayesian_optimize 宣称贝叶斯优化但实现是 random.uniform
+        历史名 bayesian_optimize 宣称贝叶斯优化但实现是 random.uniform
         均匀随机采样, 无代理模型/采集函数 — 已更名为 random_sampling 诚实化。
 
         Args:
@@ -522,7 +522,7 @@ class StrategyOptimizer:
             metrics=best_metrics
         )
 
-    # 历史别名 (审计 E-P1 更名前的旧 API 名) — 实现同 random_sampling
+    # 历史别名 (更名前的旧 API 名) — 实现同 random_sampling
     bayesian_optimize = random_sampling
 
     def optimize(self, data: pd.DataFrame,
@@ -544,7 +544,7 @@ class StrategyOptimizer:
         elif method == "random":
             return self.random_search(data, **kwargs)
         elif method in ("random_sampling", "bayesian"):
-            # "bayesian" 是 E-P1 更名前的历史分派名, 实现为随机采样
+            # "bayesian" 是更名前的历史分派名, 实现为随机采样
             return self.random_sampling(data, **kwargs)
         else:
             raise ValueError(f"未知优化方法: {method}")

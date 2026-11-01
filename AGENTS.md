@@ -2,11 +2,11 @@
 
 ## What this is
 
-Chinese A-share quantitative analysis framework ("Skills 股票量化分析框架" v2.0). ~27k LOC Python. Built as a Claude Code skills collection — not a conventional installable package. Disclaimer in README: test project, not production advice.
+Chinese A-share quantitative analysis framework ("Skills 股票量化分析框架" v2.0). ~28.5k LOC Python. Built as a Claude Code skills collection — not a conventional installable package. Disclaimer in README: test project, not production advice.
 
 ## Two parallel systems (do not confuse them)
 
-1. **`.claude/skills/`** — main analysis chain (38+ modules + `core/`). Entry: `quant_workflow.py` (facade), `web_app.py` (Streamlit), `signal_generator.py`, `technical_analyzer.py`.
+1. **`.claude/skills/`** — main analysis chain (43 modules + `core/`). Entry: `quant_workflow.py` (facade), `web_app.py` (Streamlit), `signal_generator.py`, `technical_analyzer.py`.
 2. **`optimization_package/optimization_package/`** — 离线部署包 (Parquet-based GA pipeline)。**2026-10-26 治理决策: 主链是唯一真相源, 本目录的 `skills/` 是构建产物** —— 由主链内 `.claude/skills/tools/pack.py` (**受版本控制**) 按依赖闭包自动生成, **请勿手改**; 每次打包写 `PROVENANCE.json` (源 commit + 每文件 sha256) → 陈旧产物无法冒充最新。改代码只改主链, 再重跑 `python .claude/skills/tools/pack.py`。决策依据与落地记录: 台账 §5.1; 门禁 `tests/test_package_parity.py`。
 
 `optimization_package/` is **gitignored** (整个目录 0 文件被跟踪) → 克隆后需重跑打包脚本才有包; 工作区副本陈旧可用 `PROVENANCE.json` 的 `source_commit` 检出。
@@ -77,7 +77,7 @@ No lint/typecheck config. No pre-commit. `pyproject.toml` 存在 (项目元数�
 - Core (顶层 import, 缺失即 ImportError): `pandas numpy scipy akshare` — 分析层清单见 `.claude/skills/requirements.txt` (B-P2; `multi_factor_selection` 顶层 `from scipy import stats`)
 - Runtime/guarded: `pyarrow` (historical_data_manager parquet 读写), `matplotlib` (chart_visualizer 绘图, ImportError 守卫降级), `scikit-learn` (ml_predictor, try 守卫)
 - Web 层: `streamlit scikit-learn scipy altair plotly` (见 `web_requirements.txt`; `web_app.py` 是 skills 目录中唯一 streamlit 调用方)
-- Optional-dep guards (`_AVAILABLE` / `MODULES_AVAILABLE`): use **separate try blocks** per import (pattern set when concurrent_fetcher existed; that module has since been deleted). No remaining sqlalchemy/redis/psycopg2-dependent modules.
+- Optional-dep guards (`_AVAILABLE` / `MODULES_AVAILABLE`): use **separate try blocks** per import. No remaining sqlalchemy/redis/psycopg2-dependent modules.
 
 ## Testing
 

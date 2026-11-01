@@ -36,8 +36,10 @@ venv\Scripts\activate
 # Linux/Mac:
 source venv/bin/activate
 
-# 安装依赖
-pip install pandas numpy matplotlib akshare openpyxl
+# 安装依赖（以 requirements.txt 为准）
+pip install -r .claude/skills/requirements.txt
+# Web 界面另装:
+pip install -r web_requirements.txt
 ```
 
 ### Q2: 如何确认安装成功？
@@ -59,12 +61,8 @@ except Exception as e:
 ```python
 from stock_data_fetcher import StockDataFetcher
 
-# 方法1：初始化时指定
+# 初始化时指定（默认 ./stock_data）
 fetcher = StockDataFetcher(data_dir="D:/my_stock_data")
-
-# 方法2：修改配置
-import os
-os.environ['STOCK_DATA_DIR'] = 'D:/my_stock_data'
 ```
 
 ---
@@ -96,17 +94,28 @@ def get_data_with_retry(symbol, max_retries=3):
 
 ### Q5: 如何获取复权数据？
 
-**A:** 当前使用腾讯接口默认前复权。如需其他复权方式：
+**A:** 数据入口默认后复权（hfq），适合回测/信号分析。需要真实价格时显式传 `adjust=""`：
 
 ```python
-# 使用备用方法
+# 默认后复权（回测/信号用）
+data = fetcher.get_quote_data('600519', days=252)  # 等价于 adjust='hfq'
+
+# 前复权
+data = fetcher.get_quote_data('600519', days=252, adjust='qfq')
+
+# 不复权（真实成交价，如持仓成本对比）
+data = fetcher.get_quote_data('600519', days=252, adjust='')
+
+# 备用接口（同样支持复权）
 data = fetcher.get_quote_data_fallback(
     symbol='600519',
     start_date='20230101',
     end_date='20231231',
-    adjust='qfq'  # qfq前复权, hfq后复权, ''不复权
+    adjust='hfq'  # 'qfq'前复权, 'hfq'后复权, ''不复权
 )
 ```
+
+不要在同一分析内混用复权口径。
 
 ### Q6: 批量获取时请求过快被限制怎么办？
 
@@ -357,39 +366,41 @@ test_data = data[data['日期'] >= split_date]
 # ... 优化参数 ...
 
 # 在测试集上验证
-result = engine.run_backtest(test_data, test_data)
+result = engine.run(test_data, strategy=lambda d: 1 if d.iloc[-1].get("signal_buy") else 0)
 
 # 比较结果
-print(f"训练集年化收益: {train_result.annual_return:.2%}")
-print(f"测试集年化收益: {result.annual_return:.2%}")
+print(f"训练集年化收益: {train_result['annualized_return']:.2f}%")
+print(f"测试集年化收益: {result['annualized_return']:.2f}%")
 ```
 
 ### Q17: 如何分析回测失败原因？
 
 ```python
 def analyze_failure(result):
-    """分析失败原因"""
+    """分析失败原因（result 为 engine.run 返回的 dict）"""
+
+    trades = result["trades"]
 
     # 检查交易次数
-    if len(result.trades) < 10:
-        print("⚠️ 交易次数过少，信号可能过弱")
+    if len(trades) < 10:
+        print("交易次数过少，信号可能过弱")
 
     # 检查胜率
-    if result.win_rate < 0.4:
-        print("⚠️ 胜率过低，需要优化入场条件")
+    if result["win_rate"] < 0.4:
+        print("胜率过低，需要优化入场条件")
 
     # 检查盈亏比
-    if result.profit_factor < 1.5:
-        print("⚠️ 盈亏比不佳，需要优化出场条件")
+    if result["profit_factor"] < 1.5:
+        print("盈亏比不佳，需要优化出场条件")
 
-    # 检查最大回撤
-    if result.max_drawdown < -0.3:
-        print("⚠️ 回撤过大，需要添加止损")
+    # 检查最大回撤（正值百分比）
+    if result["max_drawdown"] > 30:
+        print("回撤过大，需要添加止损")
 
     # 检查交易分布
-    trades_per_month = len(result.trades) / (result.trades['exit_date'].max().month - result.trades['exit_date'].min().month + 1)
-    if trades_per_month > 20:
-        print("⚠️ 交易过于频繁，考虑增加信号过滤")
+    months = trades["exit_date"].dt.to_period("M").nunique()
+    if months and len(trades) / months > 20:
+        print("交易过于频繁，考虑增加信号过滤")
 ```
 
 ---
@@ -462,22 +473,28 @@ if risk['beta'] > 1.5:
 ```python
 from real_time_monitor import AlertCondition, AlertType, AlertPriority
 
-# 价格告警
+# 价格告警（AlertCondition 是 dataclass，建议用关键字参数）
 price_alerts = [
-    AlertCondition(AlertType.PRICE_ABOVE, 2000, AlertPriority.HIGH),
-    AlertCondition(AlertType.PRICE_BELOW, 1500, AlertPriority.URGENT),
+    AlertCondition(alert_type=AlertType.PRICE_ABOVE, threshold=2000,
+                   priority=AlertPriority.HIGH),
+    AlertCondition(alert_type=AlertType.PRICE_BELOW, threshold=1500,
+                   priority=AlertPriority.URGENT),
 ]
 
 # 涨跌幅告警
 change_alerts = [
-    AlertCondition(AlertType.CHANGE_UP, 5.0, AlertPriority.MEDIUM),
-    AlertCondition(AlertType.CHANGE_DOWN, 5.0, AlertPriority.HIGH),
+    AlertCondition(alert_type=AlertType.CHANGE_UP, threshold=5.0,
+                   priority=AlertPriority.MEDIUM),
+    AlertCondition(alert_type=AlertType.CHANGE_DOWN, threshold=5.0,
+                   priority=AlertPriority.HIGH),
 ]
 
-# 突破告警
+# 突破告警（period 用于突破判断）
 breakout_alerts = [
-    AlertCondition(AlertType.BREAKOUT_HIGH, 20, AlertPriority.HIGH),
-    AlertCondition(AlertType.BREAKOUT_LOW, 20, AlertPriority.MEDIUM),
+    AlertCondition(alert_type=AlertType.BREAKOUT_HIGH, period=20,
+                   priority=AlertPriority.HIGH),
+    AlertCondition(alert_type=AlertType.BREAKOUT_LOW, period=20,
+                   priority=AlertPriority.MEDIUM),
 ]
 
 # 批量添加
@@ -778,9 +795,9 @@ def backtest(data, signals):
     logger.info(f"回测数据范围: {data['日期'].min()} 到 {data['日期'].max()}")
     logger.info(f"买入信号数量: {signals['signal_buy'].sum()}")
 
-    result = engine.run_backtest(data, signals)
+    result = engine.run(data, strategy=lambda d: 1 if d.iloc[-1].get("signal_buy") else 0)
 
-    logger.info(f"回测完成，收益率: {result.total_return:.2%}")
+    logger.info(f"回测完成，收益率: {result['total_return']:.2f}%")
     return result
 ```
 

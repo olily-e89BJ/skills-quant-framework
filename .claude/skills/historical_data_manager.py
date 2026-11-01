@@ -9,19 +9,19 @@
     个股 (+复权口径) 一个Parquet文件
     - 不复权 (adjust=''): stock_data/historical/{symbol}.parquet
     - 复权   (adjust='qfq'/'hfq'): stock_data/historical/{symbol}_{adjust}.parquet
-    指数 独立命名空间 (审计 M12)
+    指数 独立命名空间
     - stock_data/historical/index/{symbol}.parquet (指数无复权口径)
     与同代码个股互不覆盖: 000001 在个股命名空间是平安银行, 在指数命名空间
     是上证指数 —— 请用 `load()` 读个股 / `load_index()` 读指数。
     Parquet 不可用 (缺 pyarrow / 写失败) 时同名降级为 .csv, 读写两侧对称
-    (审计 M13)。
+    (共享降级读)。
 
-复权是**数据维度**而非装饰 (审计 P0-4): 不同复权口径的序列混在一起会在除权日
+复权是**数据维度**而非装饰: 不同复权口径的序列混在一起会在除权日
 产生虚假跳空, 收益率与全部技术指标随之失真。因此复权口径进入文件名与元数据,
 不同口径互不覆盖; `load(..., adjust=...)` 只读对应口径的文件, 缺失时返回空
 DataFrame (不拿不复权数据冒充前复权)。
 
-**默认口径 = 后复权** (`DEFAULT_ADJUST='hfq'`, 产品决策 2026-10-30, 台账 §5.4):
+**默认口径 = 后复权** (`DEFAULT_ADJUST='hfq'`, 产品决策 2026-10-30):
 本层各入口 (fetch_and_cache / get_daily_result / load / batch_fetch / CLI)
 未显式给 adjust 时一律取后复权 —— 回测收益不含除权跳空、增量缓存追加永远
 正确 (后复权历史价不随分红变化)。要不复权/前复权请显式 `adjust=''/'qfq'`;
@@ -65,7 +65,7 @@ class HistoricalDataManager:
         self.data_dir = Path(data_dir)
         self.historical_dir = self.data_dir / "historical"
         self.historical_dir.mkdir(parents=True, exist_ok=True)
-        # 指数独立命名空间 (审计 M12): 沪深300(000300) 与上证指数(000001) 此前
+        # 指数独立命名空间: 沪深300(000300) 与上证指数(000001)
         # 与个股共用 {symbol}.parquet —— 000001 既是上证指数又是平安银行, 取错
         # 前缀会把个股行情写进指数位置 (反之亦然), 体制判定/交易日历随之用错标的
         self.index_dir = self.historical_dir / "index"
@@ -107,11 +107,11 @@ class HistoricalDataManager:
 
         个股: 6→sh (沪市主板), 0/3→sz (深市主板/创业板),
               4/8/92→bj (北交所, 规则单一真相源 sina_daily.format_symbol,
-              审计 M18 —— 旧实现缺 bj 分支, 920xxx 裸码取数静默失败)
+              bj 分支 —— 920xxx 裸码取数若无 bj 分支会静默失败)
         指数: 000xxx→sh (沪市指数, 如 沪深300=000300/上证50=000016),
               399xxx→sz (深市指数, 如 深证成指=399001/创业板指=399006)
 
-        ⚠️ 指数必须显式声明 is_index=True, **不能靠代码猜** (审计 M12):
+        ⚠️ 指数必须显式声明 is_index=True, **不能靠代码猜**:
         000001 既是上证指数(sh000001)又是平安银行(sz000001); 000905/000852
         等也是"既有个股又有指数"的占用关系 (见 stock_list.csv)。此前无此
         标志, 指数一律被映射成 sz000300 —— 沪深300 在沪市, 新浪无该代码,
@@ -126,7 +126,7 @@ class HistoricalDataManager:
         return format_symbol(symbol)
 
     def _get_index_path(self, symbol: str) -> Path:
-        """指数行情的Parquet路径 (独立命名空间, 审计 M12)
+        """指数行情的Parquet路径 (独立命名空间)
 
         historical/index/{symbol}.parquet —— 与个股 {symbol}.parquet 隔离:
         000001 在个股命名空间是平安银行, 在指数命名空间是上证指数, 互不覆盖。
@@ -138,7 +138,7 @@ class HistoricalDataManager:
         return self.index_dir / f"{str(symbol).zfill(6)}.csv"
 
     def _get_parquet_path(self, symbol: str, adjust: str = "") -> Path:
-        """获取Parquet文件路径 (复权口径进文件名, 审计 P0-4)
+        """获取Parquet文件路径 (复权口径进文件名)
 
         不复权 → {symbol}.parquet (向后兼容既有文件)
         复权   → {symbol}_{adjust}.parquet (qfq/hfq 互不覆盖)
@@ -156,7 +156,7 @@ class HistoricalDataManager:
         return "" if tag in ("", "none", "raw", "bfq") else tag
 
     def _get_csv_path(self, symbol: str, adjust: str = "") -> Path:
-        """获取CSV路径 (Parquet不可用时的降级路径, 审计 P0-4)
+        """获取CSV路径 (Parquet不可用时的降级路径)
 
         与 `_get_parquet_path` 同构: 文件名带复权口径标签, 不同口径互不覆盖。
         旧实现降级时固定写 {symbol}.csv → qfq 数据占用"不复权"位置,
@@ -209,7 +209,7 @@ class HistoricalDataManager:
     @staticmethod
     def _read_local(parquet_path: Path, csv_path: Path,
                     label: str = "") -> Optional[pd.DataFrame]:
-        """读本地缓存: Parquet 优先, 失败降级同口径 CSV (审计 M13)
+        """读本地缓存: Parquet 优先, 失败降级同口径 CSV
 
         写路径早有 CSV 降级 (pyarrow 缺失/to_parquet 失败时落 CSV), 读路径
         此前却是裸 `pd.read_parquet` —— 缺 pyarrow 时 `load()` 直接抛
@@ -263,10 +263,10 @@ class HistoricalDataManager:
         adjust : str
             复权口径 — 默认 'hfq' 后复权 (DEFAULT_ADJUST, 产品决策
             2026-10-30); ''=不复权 / 'qfq' 需显式指定。不同口径写不同
-            Parquet 文件, 互不覆盖 (审计 P0-4)。指数无复权概念,
+            Parquet 文件, 互不覆盖。指数无复权概念,
             is_index=True 时被忽略
         is_index : bool
-            是否指数 (审计 M12)。True 时: ① 按指数规则加前缀 (000xxx→sh,
+            是否指数。True 时: ① 按指数规则加前缀 (000xxx→sh,
             399xxx→sz) ② 走指数接口 stock_zh_index_daily ③ 存入独立命名空间
             historical/index/, 与同代码个股 (如 000001 平安银行 vs 上证指数)
             互不覆盖
@@ -293,7 +293,7 @@ class HistoricalDataManager:
             parquet_path = self._get_parquet_path(symbol, adjust)
             csv_path = self._get_csv_path(symbol, adjust)
 
-        # 检查已有数据 (Parquet 优先, 读不到降级同口径 CSV — 审计 M13:
+        # 检查已有数据 (Parquet 优先, 读不到降级同口径 CSV:
         # 此前 CSV 降级存的数据在增量更新时读不到, 每次都从头全量重取)
         existing_df = self._read_local(parquet_path, csv_path, label=symbol)
         try:
@@ -338,7 +338,7 @@ class HistoricalDataManager:
         # 保存 (Parquet 优先, 失败降级同口径 CSV)
         self._save_local(combined, parquet_path, csv_path, label=symbol)
 
-        # 更新元数据 (复权口径入库, 审计 P0-4; 指数单独记, 不进股票池)
+        # 更新元数据 (复权口径入库; 指数单独记, 不进股票池)
         self._register_local_meta(combined, symbol, adjust, is_index)
         # 元数据落盘 (复权口径/日期范围/行数) —— 旧实现只改内存不落盘,
         # 导致 metadata.json 永远不存在: get_cache_status/list_cached_symbols
@@ -374,10 +374,10 @@ class HistoricalDataManager:
 
     def _fetch_from_api(self, symbol: str, start_date: str, end_date: str,
                         adjust: str = DEFAULT_ADJUST) -> pd.DataFrame:
-        """从新浪接口获取数据 (adjust=复权口径, 审计 P0-4)
+        """从新浪接口获取数据 (adjust=复权口径)
 
         sh/sz 透传 ak.stock_zh_a_daily; bj 走 sina_daily 的 klc 直连
-        (akshare 对 bj 在 amount 步骤崩溃 — 审计 M18)。
+        (akshare 对 bj 在 amount 步骤崩溃)。
         """
         sina_symbol = self._format_symbol(symbol)
         adjust = self._adjust_tag(adjust)
@@ -394,7 +394,7 @@ class HistoricalDataManager:
             )
 
             if df is not None and len(df) > 0:
-                # 标准化列名 + 日期排序 + 涨跌幅 (共享单一真相源, 审计 M19)
+                # 标准化列名 + 日期排序 + 涨跌幅 (共享单一真相源)
                 df = standardize_daily_frame(df)
 
                 return df
@@ -407,7 +407,7 @@ class HistoricalDataManager:
 
     def _fetch_index_from_api(self, symbol: str, start_date: str,
                               end_date: str) -> pd.DataFrame:
-        """从 akshare 指数接口获取数据 (审计 M12)
+        """从 akshare 指数接口获取数据
 
         与个股分开走 `stock_zh_index_daily` (与 market_regime_classifier /
         historical_backtest_validator 同一接口), 不复用个股的
@@ -431,7 +431,7 @@ class HistoricalDataManager:
                 end_dt = pd.to_datetime(end_date)
                 df = df[(df['日期'] >= start_dt) & (df['日期'] <= end_dt)]
                 # 标准化 (幂等) + 按日期排序 + 重置索引 + 涨跌幅
-                # (共享单一真相源, 审计 M19)
+                # (共享单一真相源)
                 df = standardize_daily_frame(df)
 
                 return df
@@ -442,22 +442,22 @@ class HistoricalDataManager:
         return None
 
     # ------------------------------------------------------------------
-    # 共享数据层的日线入口 (审计 M20)
+    # 共享数据层的日线入口
     # ------------------------------------------------------------------
     def get_daily_result(self, symbol: str, *, days: int = None,
                           start_date: str = None, end_date: str = None,
                           adjust: str = DEFAULT_ADJUST, as_of: str = None,
                           min_rows: int = 0,
                           trading_calendar=None) -> FetchResult:
-        """共享数据层的日线入口 —— 供"各自取数"的模块统一走本层 (审计 M20)。
+        """共享数据层的日线入口 —— 供"各自取数"的模块统一走本层。
 
         一次给齐以前缺失的四件事:
 
         - **复权维度** (adjust): 默认 'hfq' 后复权 (DEFAULT_ADJUST, 产品
           决策 2026-10-30); ''=不复权 / 'qfq' 需显式指定。落库文件名与
-          元数据都带该维度 (审计 P0-4) → 不复权序列含除权跳空, 收益率/指标
+          元数据都带该维度 → 不复权序列含除权跳空, 收益率/指标
           会失真。此前 `long_term_selector` / `reversal_detector` 自行调
-          `fetch_daily` → **无此维度**, 与 P0-4 口径矛盾。
+          `fetch_daily` → **无此维度**, 与复权维度口径矛盾。
         - **参考日** (as_of): 显式 as_of 优先; None → 今天 (实时取数默认)。
           结果的 `as_of` 字段记录实际参考日 → 需要可复现的调用方必须显式传。
         - **FetchResult**: 失败带 error (不再静默 None / 空 DF 假装成功)。
@@ -584,7 +584,7 @@ class HistoricalDataManager:
         """
         加载本地缓存的**个股**历史数据 (按复权口径取对应文件)
 
-        指数请用 `load_index()` (独立命名空间, 审计 M12)。
+        指数请用 `load_index()` (独立命名空间)。
 
         Parameters:
         -----------
@@ -597,7 +597,7 @@ class HistoricalDataManager:
         adjust : str
             复权口径 — 默认 'hfq' 后复权 (DEFAULT_ADJUST, 产品决策
             2026-10-30); ''=不复权 / 'qfq' 需显式指定。缺失该口径文件时
-            返回**空 DataFrame** (不拿别的口径冒充, 审计 P0-4)
+            返回**空 DataFrame** (不拿别的口径冒充)
 
         Returns:
         --------
@@ -625,7 +625,7 @@ class HistoricalDataManager:
     def load_index(self, symbol: str, start_date: str = None,
                    end_date: str = None) -> pd.DataFrame:
         """
-        加载本地缓存的**指数**历史数据 (独立命名空间, 审计 M12)
+        加载本地缓存的**指数**历史数据 (独立命名空间)
 
         与个股命名空间隔离: 000001 在 `load()` 是平安银行, 在 `load_index()`
         是上证指数, 互不覆盖。指数数据由
@@ -742,7 +742,7 @@ class HistoricalDataManager:
     def _base_symbol(key: str) -> str:
         """metadata 键 → 基础代码 (`'600000_hfq'` → `'600000'`, 其余原样)
 
-        元数据键带复权口径标签 (P0-4); 股票池/展示层要的是**基础代码** —
+        元数据键带复权口径标签; 股票池/展示层要的是**基础代码** —
         否则默认口径切到 hfq 后池子里会出现 `'600000_hfq'` 这种假代码。
         """
         base, sep, tag = str(key).rpartition('_')
@@ -785,7 +785,7 @@ class HistoricalDataManager:
         return df
 
     def _reference_date(self, as_of=None):
-        """股票池的**参考日** (审计 H4)。
+        """股票池的**参考日**。
 
         旧实现用 `datetime.now()` → ① 同一份代码在不同时间跑出不同股票池
         (不可复现); ② 用"今天"当基准去描述"历史" → 前视。
@@ -821,9 +821,9 @@ class HistoricalDataManager:
         return DelistedRegistry.load(default_registry_path(self.data_dir))
 
     def _universe_meta(self, as_of=None) -> dict:
-        """股票池口径元数据 (幸存者偏差**由证据得出**) —— 审计 H4 + D1。
+        """股票池口径元数据 (幸存者偏差**由证据得出**)。
 
-        H4 阶段此处是硬编码 True (退市股行情缺位 → 只能标记); D1 补齐
+        早期此处是硬编码 True (退市股行情缺位 → 只能标记); 后补齐
         退市清单基建后, 标记改按 **四条证据规则**推导 —— 任一不满足即
         保守保持 True, 全部满足才允许 False:
 
@@ -912,7 +912,7 @@ class HistoricalDataManager:
                            str(max(lasts)) if lasts else None],
             'survivorship_bias': bias,
             'survivorship_note': note,
-            # 证据落盘 (清单统计 + 补齐数) → 声明可复核 (审计 D1)
+            # 证据落盘 (清单统计 + 补齐数) → 声明可复核
             'delisted_registry': {**st, 'n_cached_in_scope': n_done,
                                   'n_in_scope': n_scope},
         }
@@ -920,7 +920,7 @@ class HistoricalDataManager:
     def get_universe(self, min_history_days: int = 5000,
                      min_rows: int = 2000, as_of=None) -> list:
         """
-        获取有足够历史数据的股票池 (审计 H4: 支持 point-in-time)
+        获取有足够历史数据的股票池 (支持 point-in-time)
 
         Parameters:
         -----------
@@ -993,7 +993,7 @@ class HistoricalDataManager:
 
     def get_universe_meta(self, min_history_days: int = 5000,
                           min_rows: int = 2000, as_of=None) -> dict:
-        """股票池 + 口径元数据 (含幸存者偏差标记) —— 审计 H4。
+        """股票池 + 口径元数据 (含幸存者偏差标记)。
 
         Returns:
             dict: {universe, as_of, n_stocks, survivorship_bias, ...}
@@ -1063,7 +1063,7 @@ class HistoricalDataManager:
         return result
 
     def get_trading_calendar(self, index_code: str = "000001"):
-        """由本地指数行情构建交易日历 (审计 C-P1-12 遗留项: 停牌建模)。
+        """由本地指数行情构建交易日历 (停牌建模)。
 
         指数每个交易日都有行情行 → 指数日期集合即交易日历;
         个股缺失的交易日 = 真停牌日 (不再误伤节假日)。
@@ -1093,7 +1093,7 @@ class HistoricalDataManager:
                        for k in self.metadata.get("stocks", {})})
 
     def get_stock_name(self, symbol: str) -> str:
-        """获取股票名称 (stock_list_manager 单例, __file__ 基准 — 审计 M15)
+        """获取股票名称 (stock_list_manager 单例, __file__ 基准)
 
         旧实现用 CWD 相对路径读 skills 目录下的 stock_list.csv: 仓库根
         以外运行即取不到; 每次调用重读 CSV; 用 int(symbol) 匹配 (非数字代码
@@ -1108,7 +1108,7 @@ class HistoricalDataManager:
 
 
 def _delisted_coverage(reg: DelistedRegistry, manager: "HistoricalDataManager"):
-    """清单内**尚未缓存**的在范围退市股 (审计 D1 的补齐口径)"""
+    """清单内**尚未缓存**的在范围退市股 (补齐口径)"""
     codes = reg.codes(in_scope=True)
     # 补齐判定按**任一**复权口径 (有数据即可; 口径只是同一事实的两个视图)
     missing = [c for c in codes if not manager._has_stock_any_adjust(c)]
@@ -1116,7 +1116,7 @@ def _delisted_coverage(reg: DelistedRegistry, manager: "HistoricalDataManager"):
 
 
 def _run_delisted_command(args, manager, fetcher=None) -> int:
-    """`delisted` 子命令分派 —— 退市清单与历史行情 (审计 D1)
+    """`delisted` 子命令分派 —— 退市清单与历史行情
 
     独立成模块级函数: 可注入 manager (临时目录) 与 fetcher (测试打桩),
     不碰仓库默认 data_dir (测试隔离红线, 见 tests/conftest.py 教训)。
@@ -1218,7 +1218,7 @@ def main():
     p_fetch.add_argument('--start', default='19960101', help='开始日期')
     p_fetch.add_argument('--end', default=None, help='结束日期')
     p_fetch.add_argument('--index', action='store_true',
-                         help='按指数取数 (审计 M12: 前缀/接口/命名空间均按指数)')
+                         help='按指数取数 (前缀/接口/命名空间均按指数)')
     p_fetch.add_argument('--adjust', default=DEFAULT_ADJUST,
                          choices=['', 'qfq', 'hfq'],
                          help="复权口径 (default=DEFAULT_ADJUST='hfq')")
@@ -1243,15 +1243,15 @@ def main():
     p_universe = subparsers.add_parser('universe', help='获取有足够历史的股票池')
     p_universe.add_argument('--min-days', type=int, default=5000, help='最少历史天数')
     p_universe.add_argument('--as-of', dest='as_of', default=None,
-                            help='point-in-time 截止日 (审计 H4: 缺省=缓存最新日)')
+                            help='point-in-time 截止日 (缺省=缓存最新日)')
 
     # validate: 验证数据
     p_validate = subparsers.add_parser('validate', help='验证数据完整性')
     p_validate.add_argument('symbol', nargs='?', help='股票代码(不指定则验证全部)')
 
-    # delisted: 退市股清单与历史行情 (审计 D1)
+    # delisted: 退市股清单与历史行情
     p_del = subparsers.add_parser(
-        'delisted', help='退市股清单与历史行情 (审计 D1: 幸存者偏差消除前提)')
+        'delisted', help='退市股清单与历史行情 (幸存者偏差消除前提)')
     del_sub = p_del.add_subparsers(dest='delisted_cmd', help='子命令')
     del_sub.add_parser('refresh',
                        help='联网刷新退市清单 (上交所+深交所; 全成功才落盘)')
@@ -1292,7 +1292,7 @@ def main():
             symbols = [str(c).zfill(6) for c in df[col].tolist()]
         else:
             # 从 stock_list.csv 加载 (stock_list_manager 单例, __file__ 基准
-            # — 审计 M15: 旧实现 CWD 相对路径, 非仓库根运行即取不到)
+            # — CWD 相对路径若非仓库根运行会取不到, 故用 __file__ 基准)
             from stock_list_manager import get_stock_list
             df = get_stock_list().get_all_stocks()
             if len(df) > 0:

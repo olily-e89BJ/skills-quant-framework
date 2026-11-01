@@ -7,7 +7,7 @@
 - 使用说明和注意事项
 - Markdown/HTML/纯文本格式输出
 
-审计 H3 批次4 (副本治理): 本模块原先**只存在于 gitignored 的部署包
+本模块原先**只存在于 gitignored 的部署包
 副本** (`optimization_package/.../skills/`) 里, 主链无源 → `pack.py`
 打包时对它 [SKIP] → 打包产物缺报告生成器 (副本的 run_optimize.py 依赖
 它出报告)。现并入主链作为**唯一真相源**, 打包时由 pack.py 自动收录。

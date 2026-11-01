@@ -287,14 +287,13 @@ from signal_generator import SignalGenerator
 generator = SignalGenerator()
 data_with_signals = generator.generate_signals(data)
 
-# 运行回测
-result = engine.run_backtest(
-    data=data_with_signals,
-    signals=data_with_signals
-)
+# 运行回测（strategy 接收截至当前 bar 的 DataFrame，返回 1/-1/0）
+result = engine.run(data_with_signals,
+                    strategy=lambda d: 1 if d.iloc[-1].get("signal_buy") else 0)
 
 # 打印结果
-print(result.generate_report())
+from backtest_framework import PerformanceReport
+print(PerformanceReport().generate_report(result))
 ```
 
 ### 示例2：带止损止盈的回测
@@ -316,9 +315,10 @@ engine = BacktestEngine(
     position_config=config
 )
 
-result = engine.run_backtest(data, signals)
-print(f"最大回撤: {result.max_drawdown:.2%}")
-print(f"夏普比率: {result.sharpe_ratio:.2f}")
+result = engine.run(data,
+                    strategy=lambda d: 1 if d.iloc[-1].get("signal_buy") else -1 if d.iloc[-1].get("signal_sell") else 0)
+print(f"最大回撤: {result['max_drawdown']:.2f}%")
+print(f"夏普比率: {result['sharpe_ratio']:.2f}")
 ```
 
 ### 示例3：多策略对比
@@ -341,11 +341,17 @@ strategies['MACD']['signal_buy'] = (
     (strategies['MACD']['MACD'].shift(1) <= strategies['MACD']['MACD_Signal'].shift(1))
 )
 
-# 对比回测
-comparison = engine.compare_strategies(data, strategies)
+# 对比回测（先各策略生成 signal_buy，再逐个 run，最后 PerformanceReport 比较）
+from backtest_framework import PerformanceReport
 
-print(comparison.summary)
-print("\n最佳策略:", comparison.best_strategy)
+results_list, names = [], []
+for name, strat_data in strategies.items():
+    results_list.append(engine.run(
+        strat_data,
+        strategy=lambda d: 1 if d.iloc[-1].get("signal_buy") else 0))
+    names.append(name)
+
+print(PerformanceReport().compare_strategies(results_list, names))
 ```
 
 ### 示例4：参数优化
@@ -368,10 +374,12 @@ for short in range(5, 20, 5):
         )
 
         # 回测
-        result = engine.run_backtest(data, data)
+        result = engine.run(
+            data,
+            strategy=lambda d: 1 if d.iloc[-1].get("signal_buy") else 0)
 
-        if result.sharpe_ratio > best_sharpe:
-            best_sharpe = result.sharpe_ratio
+        if result['sharpe_ratio'] > best_sharpe:
+            best_sharpe = result['sharpe_ratio']
             best_result = result
             best_params = (short, long)
 
@@ -680,8 +688,8 @@ for symbol in stocks:
 ```python
 # 绘制净值曲线
 equity_data = pd.DataFrame({
-    'date': result.equity_curve.index,
-    'value': result.equity_curve.values
+    'date': result['equity_curve'].index,
+    'value': result['equity_curve'].values
 })
 
 visualizer.plot_equity_curve(
@@ -744,16 +752,15 @@ engine = BacktestEngine(
     )
 )
 
-result = engine.run_backtest(
-    data=data_with_signals,
-    signals=data_with_signals
-)
+result = engine.run(data_with_signals,
+                    strategy=lambda d: 1 if d.iloc[-1].get("signal_buy") else 0)
 
 # 4. 打印结果
 print("\n" + "="*50)
 print("回测结果")
 print("="*50)
-print(result.generate_report())
+from backtest_framework import PerformanceReport
+print(PerformanceReport().generate_report(result))
 
 # 5. 绘制图表
 print("\nStep 4: 生成图表...")
@@ -764,8 +771,8 @@ visualizer.plot_candlestick(data, '600519')
 
 # 净值曲线
 equity_data = pd.DataFrame({
-    'date': result.equity_curve.index,
-    'value': result.equity_curve.values
+    'date': result['equity_curve'].index,
+    'value': result['equity_curve'].values
 })
 visualizer.plot_equity_curve(equity_data, '600519策略')
 
@@ -870,15 +877,15 @@ data['signal_buy_confirmed'] = (
 
 ```python
 # 过滤小交易
-result.trades = result.trades[result.trades['amount'] > 10000]
+result['trades'] = result['trades'][result['trades']['amount'] > 10000]
 
 # 按月份统计收益
-monthly_returns = result.equity_curve.resample('M').last().pct_change()
+monthly_returns = result['equity_curve'].resample('M').last().pct_change()
 
 # 计算滚动夏普
 rolling_sharpe = (
-    result.equity_curve.pct_change().rolling(60).mean() /
-    result.equity_curve.pct_change().rolling(60).std() *
+    result['equity_curve'].pct_change().rolling(60).mean() /
+    result['equity_curve'].pct_change().rolling(60).std() *
     np.sqrt(252)
 )
 ```

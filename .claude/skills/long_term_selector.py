@@ -65,17 +65,17 @@ class StockAnalysis:
     # 买入建议
     recommendation: str  # STRONG_BUY/BUY/HOLD/AVOID
 
-    # 交易约束前置检查 (审计 C-P1-12): False = 停牌/涨跌停/流动性阻断
+    # 交易约束前置检查: False = 停牌/涨跌停/流动性阻断
     executable: bool = True
     blocked_reasons: List[str] = field(default_factory=list)
     skipped_checks: List[str] = field(default_factory=list)
 
     def to_selection(self, as_of=None, rank=None):
-        """→ 统一契约 Selection (审计 C #9b).
+        """→ 统一契约 Selection.
 
         Args:
             as_of: 选股基准日; None = '' — LTS 为实盘实时筛选, 无 point-in-time
-                语义 (审计 L10 待修), 契约如实留空不伪造基准日
+                语义, 契约如实留空不伪造基准日
             rank: 池内排名 (1-based); None = 未排名
 
         Returns:
@@ -112,11 +112,11 @@ class StockAnalysis:
         )
 
     def to_selection(self, as_of=None, rank=None):
-        """→ 统一契约 Selection (审计 C #9b).
+        """→ 统一契约 Selection.
 
         Args:
             as_of: 选股基准日; None = '' (LTS 实盘实时筛选, 无 point-in-time
-                语义 — 审计 L10 待修, 契约里如实留空不造假)
+                语义 — 契约里如实留空不造假)
             rank: 池内排名 (1-based); None = 未排名
 
         Returns:
@@ -157,7 +157,7 @@ class LongTermSelector:
 
     def __init__(self, data_dir: str = './stock_data'):
         # 缓存键含**口径维度** (code, adjust, as_of) —— 同一只股票的不同
-        # 复权口径/参考日不是同一份数据 (审计 M20)
+        # 复权口径/参考日不是同一份数据
         self.cache = {}
         self._data_manager = None
         self.data_dir = data_dir
@@ -174,10 +174,10 @@ class LongTermSelector:
                         adjust: str = DEFAULT_ADJUST, as_of: str = None
                         ) -> Optional[pd.DataFrame]:
         """
-        获取股票历史数据 (走**共享数据层**, 审计 M20)
+        获取股票历史数据 (走**共享数据层**)
 
         旧实现自行调 `fetch_daily`: 无复权维度 / 无 as_of / 失败静默返回
-        None / 无交易日历 → 与 P0-4 口径矛盾 (且除权跳空会污染收益率)。
+        None / 无交易日历 → 与复权维度口径矛盾 (且除权跳空会污染收益率)。
         现统一走 `HistoricalDataManager.get_daily_result`: 复权维度 +
         参考日 + FetchResult (失败带原因) + 交易日历窗口。
 
@@ -368,10 +368,10 @@ class LongTermSelector:
             returns.get('return_3m', 0), returns.get('return_6m', 0)
         )
 
-        # 审计 C-P1-12: 前置可执行性检查 (中长期买入方向)
+        # 前置可执行性检查 (中长期买入方向)
         constraint = trade_constraints.check_last_bar(
             df, code=code, side='buy')
-        # 审计 C #9 收口: 约束字段统一装配 (不再各模块手拼)
+        # 约束字段统一装配 (不在各模块手拼)
         cfields = constraint.as_signal_fields()
 
         return StockAnalysis(
@@ -505,7 +505,7 @@ class LongTermSelector:
                 print('FAILED')
                 failed += 1
             elif not analysis.executable:
-                # 审计 C-P1-12: 交易约束剔除不进推荐
+                # 交易约束剔除不进推荐
                 reason = analysis.blocked_reasons[0] \
                     if analysis.blocked_reasons else '不可执行'
                 print(f'SKIP ({reason})')

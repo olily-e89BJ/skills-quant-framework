@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""新浪日线取数共享层 — 前缀规则单一真相源 + 北交所 bj 直连 (审计 M18)
+"""新浪日线取数共享层 — 前缀规则单一真相源 + 北交所 bj 直连
 
 收敛两处分裂:
 
@@ -9,7 +9,7 @@
    4/8/92 开头的裸码要么原样裸发、要么被错拼成 `sz920002`, 新浪一律 404,
    异常又被上层 try/except 吞掉 —— 北交所股票历史行情静默取不到。
    (本仓库股票池 stock_list.csv 中北交所代码为 920xxx 新码段, 共 315 只;
-   4/8 为审计记录的旧码段, 一并覆盖。)
+   4/8 为历史旧码段, 一并覆盖。)
 
 2. **klc 直连路径** (`_fetch_klc_direct`, bj + 退市 sh/sz 回退):
    `ak.stock_zh_a_daily` 对两类代码**不可用** —— 主行情 `hisdata_klc2` 有
@@ -27,7 +27,7 @@
 
 sh/sz 在市代码: 先走 `ak.stock_zh_a_daily` (行为与改动前一致), **仅当其
 因股本步骤确定性崩溃** (demjson 解 `(null)`, 见 `_is_amount_step_failure`)
-时回退 klc 直连 —— 退市股由回退路径透明救回 (审计 D1); 网络类等其他错误
+时回退 klc 直连 —— 退市股由回退路径透明救回; 网络类等其他错误
 原样上抛不回退 (回退不得掩盖根因), 在市代码正常情况下零改动。
 """
 
@@ -51,7 +51,7 @@ _OUT_COLS = ["date", "open", "high", "low", "close", "volume", "amount",
 def format_symbol(symbol) -> str:
     """6 位裸码 → sh/sz/bj 前缀 (新浪接口要求); 已带前缀/非纯数字原样返回
 
-    规则 (审计 M18, 5 个模块唯一真相源):
+    规则 (5 个模块唯一真相源):
     - 6 开头 → sh (沪市主板/科创板)
     - 0/3 开头 → sz (深市主板/创业板)
     - 4/8/92 开头 → bj (北交所; 920xxx 为现行码段, 43xxxx/83xxxx 为旧码段)
@@ -76,7 +76,7 @@ def fetch_daily(symbol: str, start_date, end_date, adjust: str = "") -> pd.DataF
     输出列与 `ak.stock_zh_a_daily` 对齐:
     date, open, high, low, close, volume, amount, outstanding_share, turnover
 
-    路由 (审计 D1):
+    路由:
 
     - bj: 新浪 klc 直连 (见模块 docstring; akshare 对 bj 在股本步骤崩溃)
     - sh/sz: 先走 `ak.stock_zh_a_daily` (在市代码行为与改动前一致),
@@ -132,7 +132,7 @@ def _fetch_klc_direct(symbol: str, start_date, end_date, adjust: str = "") -> pd
     """新浪 klc 直连日线 (解密 klc 数据)
 
     适用: bj 代码 (akshare 不支持) + 退市 sh/sz (akshare 在股本步骤崩溃)。
-    根因与实测见模块 docstring。历史名 `_fetch_bj_daily` (审计 D1 后
+    根因与实测见模块 docstring。历史名 `_fetch_bj_daily` (退市股数据补齐后
     扩展用途, 2026-10-30 改名)。
     """
     text = _http_get(_KLC_URL.format(symbol))

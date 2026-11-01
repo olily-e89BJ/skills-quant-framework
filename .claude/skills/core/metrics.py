@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
-"""绩效指标统一口径（审计路线图项 9：消除同名字段不同义）。
+"""绩效指标统一口径（消除同名字段不同义）。
 
 约定:
 - profit_factor: 求和式 = sum(盈利笔) / |sum(亏损笔)|；无交易或无亏损 → 0。
 - max_drawdown: 正值百分比（回撤幅度）；输入为盯市净值序列。
 - sharpe_ratio: 年化无风险利率以小数传入（默认 0.03）；样本标准差 ddof=1。
 - win_rate: 盈利笔数 / 全部交易笔数；盈亏为 0 计入分母但**不算赢**。
-- consecutive_streaks: **交易序列**上的最大连胜/连亏笔数（审计 B48/M1）。
+- consecutive_streaks: **交易序列**上的最大连胜/连亏笔数。
 """
 import numpy as np
 
@@ -57,7 +57,7 @@ def sharpe_ratio(returns, periods_per_year: int = 252,
 def win_rate(pnl_pct) -> float:
     """胜率 = 盈利笔数 / 全部交易笔数 × 100。
 
-    约定（审计 M1 统一）：盈亏为 0（breakeven）**计入分母但不算赢**。
+    约定：盈亏为 0（breakeven）**计入分母但不算赢**。
     与 profit_factor 的"亏损侧含 0"不同 —— 后者为避免除零把 0 归入亏损，
     这里是分类口径，两者互不矛盾。
 
@@ -73,11 +73,11 @@ def win_rate(pnl_pct) -> float:
 def consecutive_streaks(pnl_pct) -> tuple:
     """交易序列上的最大连胜 / 最大连亏笔数。
 
-    约定（审计 B48/M1 统一）：
+    约定：
     - 赢 = pnl > 0；亏 = pnl < 0；**breakeven (pnl == 0) 两者都不算**，
-      因此同时打断连胜与连亏（旧引擎 B 用 pnl <= 0 把 breakeven 当亏损）。
-    - 基准是**交易序列**（不是日频净值序列）—— 旧引擎 A 在净值曲线上统计，
-      同名字段两套口径。
+      因此同时打断连胜与连亏（把 0 当亏损会虚增连亏笔数）。
+    - 基准是**交易序列**（不是日频净值序列）—— 在净值曲线上统计会把
+      "单日回撤"与"单笔亏损"混为一谈，两者口径不同、不可混用。
 
     Returns:
     --------

@@ -65,7 +65,7 @@ class BacktestResult:
     # 详细数据
     trade_details: List[Dict]
 
-    # 停牌建模 (审计 H5): 无日历 → modeled=False (如实), 行为与旧版一致
+    # 停牌建模: 无日历 → modeled=False (如实), 行为与旧版一致
     suspension_modeled: bool = False
     suspension_days: int = 0        # 区间内真停牌交易日数
     suspension_blocked_bars: int = 0  # 因停牌而未能撮合的 bar 数
@@ -82,7 +82,7 @@ class ReversalBacktester:
     def get_stock_data(self, code: str, days: int = 365) -> Optional[pd.DataFrame]:
         """获取股票历史数据"""
         try:
-            # 前缀规则单一真相源 (审计 M18: 旧内联映射缺 bj 分支)
+            # 前缀规则单一真相源 (旧内联映射缺 bj 分支)
             full_code = format_symbol(code)
 
             end_date = datetime.now()
@@ -98,7 +98,7 @@ class ReversalBacktester:
             if df is None or len(df) < 100:
                 return None
 
-            # 标准化列名 + 按日期排序 (共享单一真相源, 审计 M19)
+            # 标准化列名 + 按日期排序 (共享单一真相源)
             df = standardize_daily_frame(df, add_change=False)
 
             # 只取最近1年
@@ -111,11 +111,11 @@ class ReversalBacktester:
             return None
 
     def calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
-        """计算技术指标 — 与 ReversalDetector 完全一致 (审计 C-P1-13)"""
+        """计算技术指标 — 与 ReversalDetector 完全一致"""
         close = df['收盘']
         high = df['最高']
         low = df['最低']
-        # 共享指标引擎 (审计 #10): 与 ReversalDetector 同一真相源
+        # 共享指标引擎: 与 ReversalDetector 同一真相源
         # (旧实现 ewm(adjust=True) 与全仓 adjust=False 分裂, 已统一)
         eng = IndicatorEngine(df)
 
@@ -157,7 +157,7 @@ class ReversalBacktester:
 
     def generate_signals(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        生成买卖信号 — 规则走 reversal_rules 单一真相源 (审计 C-P1-13):
+        生成买卖信号 — 规则走 reversal_rules 单一真相源:
         与 ReversalDetector (实盘) 完全一致的阈值/指标/判定闸门。
         旧版: 两套阈值 + 死代码块 (自比较恒False) + 同bar可同时买卖 — 均已消除。
         """
@@ -207,7 +207,7 @@ class ReversalBacktester:
                         trading_calendar=None) -> Optional[BacktestResult]:
         """回测单只股票
 
-        trading_calendar: 可选交易日历 (审计 H5) → 启用停牌建模
+        trading_calendar: 可选交易日历 → 启用停牌建模
         (停牌日不撮合 + 持仓跨停牌敞口可见化)。不提供 = 不建模。
         """
         df = self.get_stock_data(code, days=365)
@@ -217,7 +217,7 @@ class ReversalBacktester:
         df = self.calculate_indicators(df)
         df = self.generate_signals(df)
 
-        # 停牌建模 (审计 H5): 无日历 → 不建模 (如实记 modeled=False)
+        # 停牌建模: 无日历 → 不建模 (如实记 modeled=False)
         susp_model = _core_suspension.SuspensionModel.build(
             trading_calendar, pd.to_datetime(df['日期']).dt.date.tolist())
         susp_blocked_bars = 0
@@ -241,7 +241,7 @@ class ReversalBacktester:
         for i in range(len(df)):
             row = df.iloc[i]
 
-            # 0) 停牌日不撮合 (审计 H5): 数据里若出现"日历判定为停牌"的行
+            # 0) 停牌日不撮合: 数据里若出现"日历判定为停牌"的行
             #    (陈旧/脏数据), 该 bar 不可成交 —— 挂单顺延
             if susp_model is not None and not susp_model.is_tradable(row['日期']):
                 susp_blocked_bars += 1
@@ -306,7 +306,7 @@ class ReversalBacktester:
                             'fee': fee,
                             'reason': pending['reason']
                         })
-                        # 审计 H5: 本笔持仓跨越的停牌交易日数
+                        # 本笔持仓跨越的停牌交易日数
                         if susp_model is not None and entry_date is not None:
                             susp_holding_days += susp_model.suspended_days_between(
                                 entry_date, row['日期'])
@@ -328,7 +328,7 @@ class ReversalBacktester:
                 pending = {'intent': 'SELL', 'reason': row['sell_reason'], 'ttl': 3}
 
         # 期末清仓 (最后一根封跌停不可卖出 → 不虚构成交, 按收盘市值计入收益)
-        # 审计 H5: 停牌日同样不可成交 → 同样不虚构成交 (按盯市计入收益)
+        # 停牌日同样不可成交 → 同样不虚构成交 (按盯市计入收益)
         if shares > 0:
             last = df.iloc[-1]
             prev_close = df['收盘'].iloc[-2] if len(df) > 1 else last['收盘']
@@ -361,7 +361,7 @@ class ReversalBacktester:
         total_return = (total_value / self.initial_capital - 1) * 100
         excess_return = total_return - buy_hold_return
 
-        # 计算胜率 (按含费净额判定, 审计 M1: 走 core 统一口径)
+        # 计算胜率 (按含费净额判定, 走 core 统一口径)
         win_trades = 0
         lose_trades = 0
         pair_pnls = []
@@ -395,7 +395,7 @@ class ReversalBacktester:
             excess_return=excess_return,
             trades=trades,
             trade_details=trade_details,
-            # 审计 H5: 停牌建模口径
+            # 停牌建模口径
             suspension_modeled=susp_model is not None,
             suspension_days=(len(susp_model.suspended_days)
                             if susp_model is not None else 0),

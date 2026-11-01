@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-停牌建模 —— 回测引擎侧单一真相源 (审计 H5)。
+停牌建模 —— 回测引擎侧单一真相源。
 
-背景 (审计原文):
+为什么需要:
 - 停牌建模此前**只落在信号层** (`trade_constraints` + `core/trading_calendar`),
   4 套回测引擎 (`backtest_framework` / `vectorized_backtest` /
   `reversal_backtest` / `historical_backtest_validator`) 对停牌**零感知**:
@@ -31,7 +31,7 @@
 - **无日历 = 无停牌建模** (引擎如实记 `suspension_modeled=False`),
   绝不以自然日差或 bar 数差臆造停牌;
 - 日历覆盖不到个股数据区间时, 只在日历覆盖区间内判定, 超出部分
-  不猜测 (引擎回退旧口径并如实标记);
+  不猜测 (引擎按未建模处理并如实标记);
 - "个股在日历中有、自身无行" = 停牌**或数据缺失** —— 二者在数据侧
   无法区分, 因此本模块的命名与报告均如实写明 (与 `trade_constraints`
   的"停牌或数据缺失"口径一致)。
@@ -50,7 +50,7 @@ __all__ = ['SuspensionModel', 'trading_day_index']
 
 @dataclass
 class SuspensionModel:
-    """真停牌日模型 (审计 H5) —— 由交易日历 + 个股行情行推导。
+    """真停牌日模型 —— 由交易日历 + 个股行情行推导。
 
     Attributes:
         calendar: 交易日历 (真相源)
@@ -158,7 +158,7 @@ class SuspensionModel:
 
 def trading_day_index(calendar: Optional[TradingCalendar],
                       dates: Sequence) -> Optional[np.ndarray]:
-    """交易日 → bar 下标 的**前向填充**映射 (审计 H5)。
+    """交易日 → bar 下标 的**前向填充**映射。
 
     返回数组: 每个交易日对应的"当日或之前最近一根 bar"的下标。
     停牌日 (个股无 bar) → 沿用上一根 bar 的下标 → 该交易日的市值/价格

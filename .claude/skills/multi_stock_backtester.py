@@ -27,7 +27,7 @@ class StockEvalResult:
 
 @dataclass
 class AggregateStats:
-    """聚合统计 — 个股指标的**横截面**聚合 (审计 M22)
+    """聚合统计 — 个股指标的**横截面**聚合
 
     ⚠️ 口径: 本模块没有组合净值曲线 (BacktestMetrics 是逐股指标), 全部统计
     量都是"各股指标再聚合"。worst_drawdown = 各股回撤里的最大值 (最差个股),
@@ -101,7 +101,7 @@ class MultiStockBacktester:
         min_rows : int
             最少数据行数
         seed : int or None
-            抽样种子 (审计 M22): 默认 42 —— 同一股票池下跨体系用同一样本
+            抽样种子: 默认 42 —— 同一股票池下跨体系用同一样本
             可比、跨运行可复现; 传 None 显式选择不可复现的随机抽样。
 
         Returns:
@@ -114,7 +114,7 @@ class MultiStockBacktester:
 
         if len(symbols) > n_stocks:
             import random
-            # 固定种子抽样 (审计 M22: 旧实现 random.sample 无种子,
+            # 固定种子抽样 (无种子的 random.sample 不可复现,
             # 同一股票池两次运行评估的是不同样本, 体系间对比失真)
             symbols = random.Random(seed).sample(symbols, n_stocks)
 
@@ -136,7 +136,7 @@ class MultiStockBacktester:
             try:
                 metrics = self.backtester.backtest(data, params)
                 if metrics.num_trades > 0:
-                    # 体制按该股数据窗口对齐 (审计 M22: 旧实现取全历史众数,
+                    # 体制按该股数据窗口对齐 (取全历史众数会引入窗口外信息,
                     # 用"这只股票一生的体制"冒充"回测窗口内的体制")
                     window = (data['日期'] if '日期' in data.columns
                               else data.index)
@@ -200,7 +200,7 @@ class MultiStockBacktester:
         systems : list[dict]
             参数字典列表，每个需包含 '_name' 键
         seed : int or None
-            抽样种子 — 各体系共用同一种子 → 同一样本, 对比才公平 (审计 M22)
+            抽样种子 — 各体系共用同一种子 → 同一样本, 对比才公平
 
         Returns:
         --------
@@ -271,7 +271,7 @@ class MultiStockBacktester:
         )
 
     def _get_dominant_regime(self, symbol, regime_labels, window=None):
-        """获取股票在**数据窗口内**的主要体制 (审计 M22)
+        """获取股票在**数据窗口内**的主要体制
 
         window: 该股回测数据的日期序列 (data['日期'])。传入时只统计窗口内
         有标签的交易日 —— 旧实现取全历史众数, 用"这只股票一生的体制"冒充
@@ -370,7 +370,7 @@ def main():
     parser.add_argument('--n-stocks', type=int, default=100,
                        help='评估股票数')
     parser.add_argument('--seed', type=int, default=42,
-                       help='抽样种子 (审计 M22: 固定种子保证可复现)')
+                       help='抽样种子 (固定种子保证可复现)')
     parser.add_argument('--regime-labels',
                        default='stock_data/regime_labels.csv',
                        help='体制标签文件')

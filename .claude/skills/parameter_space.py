@@ -147,7 +147,7 @@ class ParameterSpace:
 
     @classmethod
     def grid_for(cls, names: list, max_points: int = 6) -> dict:
-        """从**规范定义**派生网格 `{参数名: [候选值...]}` (审计 L1)。
+        """从**规范定义**派生网格 `{参数名: [候选值...]}`。
 
         单一真相源: 参数名与取值范围只在 `ParameterSpace` 里定义一次。
         任何"手写网格"都会与它漂移 —— 旧 `strategy_optimizer` 的 5 处网格

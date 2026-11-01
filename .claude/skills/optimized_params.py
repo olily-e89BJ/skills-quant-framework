@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-优化结果 → 生产参数下发契约 (审计 E-P1 #19 闭环 P1)
+优化结果 → 生产参数下发契约
 
 读取 OptimizationEngine.save_results 落盘的 best_params JSON, 提取
 systems[].params 作为可直接下发的参数字典:
@@ -16,7 +16,7 @@ systems[].params 作为可直接下发的参数字典:
     regime=X    → 精确匹配 systems[].regime, 无匹配报错并列出可用值
 
 加权模式标注: 优先显式 use_weighted_scoring 参数; None 时取 JSON 顶层
-字段 (E-P1 接线后 save_results 落盘); 旧 JSON 缺键 → True (当前优化器
+字段 (save_results 落盘); 旧 JSON 缺键 → True (当前优化器
 默认 — 评分维参与 fitness 的运行产出的是加权模式最优解)。
 """
 import json

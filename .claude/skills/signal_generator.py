@@ -3,7 +3,7 @@
 信号生成器模块
 根据技术指标生成买卖信号
 
-单一真相源 (项 21 合并): 本模块是全项目唯一的信号打分实现;
+单一真相源: 本模块是全项目唯一的信号打分实现;
 daily_signal_generator (S2) 的内层已并入此处, S2 只保留体制检测/批量日报外壳。
 """
 import sys
@@ -96,7 +96,7 @@ def describe_signals(values, side='all'):
 
 
 class SignalGenerator:
-    """信号生成器类 (双模式: 投票制默认 / 4 因子加权评分 — E-P1 #19 闭环)"""
+    """信号生成器类 (双模式: 投票制默认 / 4 因子加权评分)"""
 
     def __init__(self, buy_threshold=2.0, sell_threshold=2.0,
                  use_weighted_scoring=False, scoring_params=None,
@@ -168,7 +168,7 @@ class SignalGenerator:
             df['signal_sell_score'] = sell_score
             sb = float(self.scoring_params.get('score_buy_threshold', 60.0))
             ss = float(self.scoring_params.get('score_sell_threshold', 35.0))
-            # 买卖互斥 (审计项21 合并): 同一根 bar 不得同时给出买/卖信号
+            # 买卖互斥: 同一根 bar 不得同时给出买/卖信号
             buy_sig = ((buy_score >= sb) & (buy_score > sell_score)).astype(int)
             sell_sig = ((sell_score >= ss) & (sell_score > buy_score)).astype(int)
             # 与 vectorized_backtest 评分模式同一 warmup 口径
@@ -472,7 +472,7 @@ class SignalGenerator:
         df = self.generate_signals(data)
         latest = df.iloc[-1]
 
-        # 审计 C-P1-12: 前置可执行性检查 (本 API 无 symbol → 一字板记 skipped)
+        # 前置可执行性检查 (本 API 无 symbol → 一字板记 skipped)
         report = trade_constraints.check_last_bar(df, code=None, side='both')
 
         return {
@@ -490,7 +490,7 @@ class SignalGenerator:
             'bb': latest['signal_bb'],
             'volume': latest['signal_volume'],
             'breakout': latest['signal_breakout'],
-            # 契约列名 → 值 (报告层标签翻译用, 项21 合并新增)
+            # 契约列名 → 值 (报告层标签翻译用)
             'signals': {col: float(latest[col]) for col in SIGNAL_LABELS},
             'executable': report.ok,
             'blocked_reasons': list(report.blocked_reasons),
@@ -499,7 +499,7 @@ class SignalGenerator:
 
     def to_signal(self, data, symbol=None, target_weight=None,
                   execute_at=None, signal_date=None):
-        """产出统一契约 Signal (审计 C #9 / 项 21 #9a).
+        """产出统一契约 Signal.
 
         取最新一根 bar 的信号; 可执行性检查复用 `get_latest_signal` 已算好的
         约束结果 (不重复调用 trade_constraints)。
@@ -589,11 +589,11 @@ class SignalGenerator:
                 lines.append(f"  {display}: 中性")
 
 
-        # 审计 C-P1-12: 可执行性阻断提示 (仅在存在阻断时输出)
+        # 可执行性阻断提示 (仅在存在阻断时输出)
         blocked = signal_info.get('blocked_reasons') or []
         if blocked:
             lines.append("")
-            lines.append("可执行性检查 (C-P1-12):")
+            lines.append("可执行性检查:")
             for reason in blocked:
                 lines.append(f"  [阻断] {reason}")
 
@@ -605,7 +605,7 @@ class SignalGenerator:
 
 # 便捷函数
 def generator_from_params(params):
-    """按下发参数构造生成器 (E-P1 #19 契约公开入口): None → 出厂投票制;
+    """按下发参数构造生成器: None → 出厂投票制;
     dict → optimized_params.load_optimized_params 下发字典直通
     (阈值/模式/评分参数同源)。web_app 加载优化参数时经此换实例,
     既有 signal_buy/sell/strength 调用面零改动。"""
@@ -633,7 +633,7 @@ def get_latest_signal(data, params=None):
 
 
 def get_signal(data, params=None, symbol=None, **kwargs):
-    """产出统一契约 Signal (审计 C #9 便捷入口).
+    """产出统一契约 Signal (便捷入口).
 
     Args:
         data: 含技术指标的 DataFrame

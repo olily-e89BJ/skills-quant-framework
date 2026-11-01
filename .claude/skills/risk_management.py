@@ -343,7 +343,7 @@ class PositionSizing:
         Returns:
             各资产仓位
 
-        注: 原 risk_budget 参数已删 (审计 M9) —— 声明后函数体从未使用
+        注: 原 risk_budget 参数已删 —— 声明后函数体从未使用
         (本实现为等风险贡献迭代, 无逐资产风险预算维度)。
         """
         n = len(cov_matrix)
