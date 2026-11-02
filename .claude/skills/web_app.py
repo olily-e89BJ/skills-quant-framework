@@ -41,17 +41,22 @@ IMPORT_ERROR: Optional[str] = None
 try:
     from stock_data_fetcher import StockDataFetcher
     from signal_generator import SignalGenerator, generator_from_params
-    from optimized_params import (load_optimized_params, list_systems,
-                                  resolve_regime_params)
+    from optimized_params import (effective_indicator_params,
+                                  effective_position_params,
+                                  effective_signal_params, load_optimized_params,
+                                  list_systems, params_overview_rows,
+                                  resolve_regime_params,
+                                  format_effective_summary)
     from indicator_params import PARAMS_COLUMN_MAP
+    from parameter_space import ParameterSpace
     from chart_visualizer import ChartVisualizer
     from backtest_framework import (BacktestEngine, PositionConfig,
+                                    StrategyFactory,
                                     position_config_from_params)
     from portfolio_manager import PortfolioManager
     from realtime_quote import RealTimeQuoteAPI
     # 统一信号契约: web 层消费 Signal, 不在各页面自拼信号字典
     from core.signal import (ACTION_BUY, ACTION_HOLD, ACTION_SELL, Signal)
-    from core.indicators import sma as _core_sma
     # 交易日历 (停牌建模) — 本地指数/缓存, 不联网
     try:
         from core.trading_calendar import ensure_calendar
@@ -168,6 +173,9 @@ def init_session_state():
         st.session_state.optimized_params = None
     if 'optimized_system_label' not in st.session_state:
         st.session_state.optimized_system_label = None
+    # 参数来源 (文件 + 体系) —— 回测页展示"参数来源"用
+    if 'optimized_params_source' not in st.session_state:
+        st.session_state.optimized_params_source = None
 
     if 'selected_stock' not in st.session_state:
         st.session_state.selected_stock = '600519'
@@ -259,6 +267,7 @@ def render_sidebar():
                 st.session_state.optimized_params = None
                 st.session_state.generator = SignalGenerator()
                 st.session_state.optimized_system_label = None
+                st.session_state.optimized_params_source = None
                 st.rerun()
 
         params_path = st.text_input(
@@ -319,6 +328,8 @@ def render_sidebar():
                 st.session_state.generator = generator_from_params(
                     params, column_map=PARAMS_COLUMN_MAP)
                 st.session_state.optimized_system_label = _label
+                # 参数来源可追溯 (文件 + 体系) → 回测页展示"参数来源"
+                st.session_state.optimized_params_source = f"{params_path} · {_label}"
                 _mode = ("加权评分" if params.get('use_weighted_scoring')
                          else "投票制")
                 st.success(f"已加载 {len(params)} 键 · {_mode} · {_label}"
@@ -692,6 +703,56 @@ def render_analysis():
 # 策略回测页面
 # =============================================================================
 
+def _signal_column_strategy(data):
+    """多因子策略: 读信号层产出的 signal_buy / signal_sell (0/1) 列。"""
+    if len(data) < 2:
+        return 0
+    latest = data.iloc[-1]
+    if latest.get('signal_buy', 0) == 1:
+        return 1  # 买入
+    elif latest.get('signal_sell', 0) == 1:
+        return -1  # 卖出
+    return 0  # 持有
+
+
+def _build_position_config(params, sizing_value, stop_loss_pct,
+                           take_profit_pct, trailing_stop_pct):
+    """仓位配置 (回测页共用): 面板显示与回测消费同一份。
+
+    - 有优化参数 → `position_config_from_params` (params 仓位维 + 止盈启用)
+    - 无优化参数 → 出厂 `PositionConfig` (止盈**未启用** — 出厂口径)
+    - 单只仓位 = min(滑杆, 优化仓位比例) (不超优化口径, 引擎 B 同款钳制)
+    """
+    if params:
+        sizing = min(sizing_value, float(params.get('position_size_pct', 1.0)))
+        return position_config_from_params(
+            params, sizing_value=sizing, max_position_pct=0.5,
+            stop_loss_pct=stop_loss_pct, take_profit_pct=take_profit_pct,
+            trailing_stop_pct=trailing_stop_pct)
+    return PositionConfig(sizing_value=sizing_value, max_position_pct=0.5,
+                           stop_loss_pct=stop_loss_pct,
+                           take_profit_pct=take_profit_pct,
+                           trailing_stop_pct=trailing_stop_pct)
+
+
+def _build_generator(overrides=None):
+    """回测页信号生成器: 已加载 params + 用户阈值覆盖 → 换实例。
+
+    - 无覆盖 → 直接用当前实例 (零变化)
+    - 已加载 params → `column_map` 桥接 params 周期列 (与指标层同口径)
+    - 未加载 params → 恒等列名 (出厂锚点列 MA5/MA10/MA20)
+    """
+    params = st.session_state.optimized_params
+    base = st.session_state.generator
+    if not overrides:
+        return base
+    merged = {**(params or {}), **overrides}
+    merged['use_weighted_scoring'] = bool(
+        getattr(base, 'use_weighted_scoring', False))
+    column_map = PARAMS_COLUMN_MAP if params else None
+    return generator_from_params(merged, column_map=column_map)
+
+
 def render_backtest():
     """渲染策略回测页面"""
     st.markdown('<h1 class="main-header">🔙 策略回测</h1>', unsafe_allow_html=True)
@@ -715,7 +776,7 @@ def render_backtest():
     with col2:
         strategy = st.selectbox(
             "策略类型",
-            ["MA交叉", "MACD", "多因子", "自定义"],
+            ["MA交叉", "MACD", "多因子"],
             key="backtest_strategy"
         )
 
@@ -731,35 +792,197 @@ def render_backtest():
 
     st.divider()
 
-    # 策略参数
-    st.subheader("策略参数")
+    # 回测参数
+    st.subheader("回测参数")
 
-    if strategy == "MA交叉":
-        col1, col2 = st.columns(2)
-        with col1:
-            ma_short = st.slider("短期均线", 5, 20, 5)
-        with col2:
-            ma_long = st.slider("长期均线", 20, 60, 20)
+    col1, col2 = st.columns(2)
 
-    elif strategy == "MACD":
-        st.info("使用默认MACD参数 (12, 26, 9)")
+    with col1:
+        backtest_days = st.slider("回测天数", 60, 500, 252,
+                                   key="backtest_days")
 
-    elif strategy == "多因子":
-        st.write("使用信号生成器的综合信号")
+    with col2:
+        position_size = st.slider("单只仓位上限(%)", 5, 50, 20,
+                                  key="backtest_position_size")
 
     st.divider()
 
-    # 回测参数
-    col1, col2, col3 = st.columns(3)
+    # ========================================================================
+    # 生效参数 (显示 = 实际消费; 优化参数来自 optimization_result.json)
+    # ========================================================================
+    # 三组维度来源不同, 一律**从运行时对象反推** (不另抄一份默认值):
+    #   指标维 → 已加载 params / 出厂规范默认
+    #   信号维 → 在跑的 SignalGenerator 实例
+    #   仓位维 → 在跑的 PositionConfig 实例 (下方构造, 面板与回测共用)
+    _p = st.session_state.optimized_params
+    _gen = st.session_state.generator
+    _ind = effective_indicator_params(_p)
+    _sig = effective_signal_params(_gen)
+    _weighted = bool(getattr(_gen, 'use_weighted_scoring', False))
+    _source = (st.session_state.optimized_params_source
+               or '出厂默认 (未加载优化参数)')
+    _mode = '加权评分' if _weighted else '投票制'
 
-    with col1:
-        backtest_days = st.slider("回测天数", 60, 500, 252)
+    st.subheader("策略参数")
+    st.caption(f"参数来源: {_source} · {_mode}")
+    if not _p:
+        st.caption("侧边栏「🎯 优化参数」可加载 optimization_result.json 的体系参数")
 
-    with col2:
-        max_positions = st.slider("最大持仓", 1, 20, 5)
+    # 控件初值 = 生效值; key 内嵌生效值 → 优化参数重载后控件换新默认值,
+    # 生效值不变时用户的覆盖得以保留
+    def _int_param(label, name, value):
+        """周期维滑杆: 量程取参数空间规范 → 任意优化取值都装得下。"""
+        pdef = ParameterSpace.get_param_def(name)
+        _v = min(max(int(value), int(pdef.low)), int(pdef.high))
+        out = st.slider(label, int(pdef.low), int(pdef.high), _v,
+                        key=f"backtest_{name}_{_v}")
+        if out != _v:
+            st.caption(f"已手动覆盖 (优化值 {_v})")
+        return out
 
-    with col3:
-        position_size = st.slider("单只仓位(%)", 5, 50, 20)
+    def _float_param(label, name, value):
+        """阈值维输入框: 量程取参数空间规范; 保留传入精度 (%g 显示)。"""
+        pdef = ParameterSpace.get_param_def(name)
+        _v = min(max(float(value), float(pdef.low)), float(pdef.high))
+        out = st.number_input(label, min_value=float(pdef.low),
+                              max_value=float(pdef.high),
+                              value=_v, step=0.01, format="%g",
+                              key=f"backtest_{name}_{_v}")
+        if abs(out - _v) > 1e-12:
+            st.caption(f"已手动覆盖 (优化值 {_v:g})")
+        return out
+
+    # ---- 策略维 (按策略类型) ----
+    ma_fast = ma_slow = None
+    macd_fast = macd_slow = macd_signal = None
+    _overrides = {}
+
+    if strategy == "MA交叉":
+        c1, c2 = st.columns(2)
+        with c1:
+            ma_fast = _int_param("短期均线", "ma_fast", _ind['ma_fast'])
+        with c2:
+            ma_slow = _int_param("长期均线", "ma_slow", _ind['ma_slow'])
+        if ma_fast >= ma_slow:
+            st.warning(f"短期均线({ma_fast}) ≥ 长期均线({ma_slow}) → 不会产生交叉信号")
+
+    elif strategy == "MACD":
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            macd_fast = _int_param("MACD 快线", "macd_fast", _ind['macd_fast'])
+        with c2:
+            macd_slow = _int_param("MACD 慢线", "macd_slow", _ind['macd_slow'])
+        with c3:
+            macd_signal = _int_param("MACD 信号线", "macd_signal",
+                                      _ind['macd_signal'])
+        if macd_fast >= macd_slow:
+            st.warning(f"MACD 快线({macd_fast}) ≥ 慢线({macd_slow}) → 不会产生交叉信号")
+
+    else:  # 多因子
+        if _weighted:
+            c1, c2 = st.columns(2)
+            with c1:
+                _sb = _float_param("评分买阈值", "score_buy_threshold",
+                                   _sig['score_buy_threshold'])
+            with c2:
+                _ss = _float_param("评分卖阈值", "score_sell_threshold",
+                                   _sig['score_sell_threshold'])
+            _overrides = {'score_buy_threshold': _sb,
+                          'score_sell_threshold': _ss}
+        else:
+            c1, c2 = st.columns(2)
+            with c1:
+                _vb = _float_param("投票买阈值", "buy_threshold",
+                                   _sig['buy_threshold'])
+            with c2:
+                _vs = _float_param("投票卖阈值", "sell_threshold",
+                                   _sig['sell_threshold'])
+            _overrides = {'buy_threshold': _vb, 'sell_threshold': _vs}
+        st.caption("评分权重 (优化器按组归一化, 只读): "
+                   f"趋势 {_sig['w_trend']:g} · 动量 {_sig['w_momentum']:g} · "
+                   f"风险 {_sig['w_risk']:g} · 绩效 {_sig['w_performance']:g}")
+
+    # ---- 仓位维 (三策略共用) ----
+    st.divider()
+    st.subheader("仓位参数")
+
+    # 仓位维初值: 有优化参数 → params (缺键兜底 = position_config_from_params
+    # 的兜底口径 ParameterSpace 规范默认); 无优化参数 → 出厂 PositionConfig
+    # 字段默认 (8%/20%/5%)。两条口径互不相同, 不能混用。
+    _fac = PositionConfig.factory_defaults()
+    if _p:
+        _psd = ParameterSpace.get_defaults()
+        _stop0 = float(_p.get('stop_loss_pct', _psd['stop_loss_pct']))
+        _take0 = float(_p.get('take_profit_pct', _psd['take_profit_pct']))
+        _trail0 = float(_p.get('trailing_stop_pct',
+                               _psd['trailing_stop_pct']))
+    else:
+        _stop0 = float(_fac['stop_loss_pct'])
+        _take0 = float(_fac['take_profit_pct'])
+        _trail0 = float(_fac['trailing_stop_pct'])
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        stop_pct = _float_param("止损比例", "stop_loss_pct", _stop0)
+    with c2:
+        take_pct = _float_param("止盈比例", "take_profit_pct", _take0)
+    with c3:
+        trail_pct = _float_param("追踪止损比例", "trailing_stop_pct", _trail0)
+
+    # 仓位配置: 面板与回测共用同一份 → 显示 = 生效
+    position_config = _build_position_config(
+        _p, position_size / 100, stop_pct, take_pct, trail_pct)
+    _pos_eff = effective_position_params(
+        position_config, min_holding_days=(_p or {}).get('min_holding_days'))
+
+    _cap = float(_p.get('position_size_pct', 1.0)) if _p else None
+    st.caption(
+        f"止损 {_pos_eff['stop_loss_pct']:.1%} · "
+        f"止盈 {_pos_eff['take_profit_pct']:.1%} "
+        f"({'已启用' if _pos_eff['take_profit_enabled'] else '出厂口径未启用'}) · "
+        f"追踪止损 {_pos_eff['trailing_stop_pct']:.1%} · "
+        f"单只仓位 {_pos_eff['position_size_pct']:.1%}"
+        + (f" (受优化上限 {_cap:.1%} 钳制)"
+           if _cap is not None and _cap < position_size / 100 else ""))
+
+    # ---- 生效参数明细 (26 维) ----
+    _ind_eff = {**_ind}
+    if strategy == "MA交叉":
+        _ind_eff['ma_fast'] = ma_fast
+        _ind_eff['ma_slow'] = ma_slow
+    elif strategy == "MACD":
+        _ind_eff['macd_fast'] = macd_fast
+        _ind_eff['macd_slow'] = macd_slow
+        _ind_eff['macd_signal'] = macd_signal
+
+    _sig_over = {k: v for k, v in _overrides.items()
+                 if abs(float(v) - float(_sig[k])) > 1e-12}
+    _sig_eff = {**_sig, **_sig_over}
+
+    _notes = {'min_holding_days': '引擎 A 不消费 (缺口已文档化)'}
+    if not _pos_eff.get('take_profit_enabled'):
+        _notes['take_profit_pct'] = '出厂口径未启用'
+    if _weighted:
+        _notes['buy_threshold'] = '加权模式不使用 (投票制阈值)'
+        _notes['sell_threshold'] = '加权模式不使用 (投票制阈值)'
+    else:
+        _notes['score_buy_threshold'] = '投票制不使用 (评分阈值)'
+        _notes['score_sell_threshold'] = '投票制不使用 (评分阈值)'
+    for _k in _sig_over:
+        _notes[_k] = f"已手动覆盖 (优化值 {_sig[_k]:g})"
+    for _k, _v in _ind_eff.items():
+        if _k in _ind and _v != _ind[_k]:
+            _notes[_k] = f"已手动覆盖 (优化值 {_ind[_k]:g})"
+    if _cap is not None:
+        _notes['position_size_pct'] = (
+            f"受优化上限 {_cap:.1%} 钳制" if _cap < position_size / 100
+            else f"优化上限 {_cap:.1%} → 取滑杆 {position_size / 100:.1%}")
+
+    with st.expander("📋 生效参数明细 (26 维)"):
+        st.dataframe(
+            params_overview_rows({**_ind_eff, **_sig_eff, **_pos_eff},
+                                 _notes),
+            **st_fill_width(st.dataframe))
 
     st.divider()
 
@@ -774,60 +997,50 @@ def render_backtest():
                     st.error(f"无法获取 {symbol} 的数据")
                     return
 
-                # 计算技术指标
+                # 计算技术指标 (params 驱动周期; 未加载 → 出厂周期)
                 data = st.session_state.fetcher.calculate_technical_indicators(data, st.session_state.optimized_params)
 
-                # 生成信号
+                # 策略接线 (与面板显示同一套参数)
+                #   MA交叉 / MACD → 引擎内置策略工厂 (参数 = 面板滑杆值)
+                #   多因子 → 信号生成器 (阈值覆盖时换实例; 列名桥接同指标层)
+                _gen_used = None
                 if strategy == "MA交叉":
-                    data[f'MA{ma_short}'] = _core_sma(data['收盘'], ma_short)
-                    data[f'MA{ma_long}'] = _core_sma(data['收盘'], ma_long)
-                    data['signal_buy'] = (
-                        (data[f'MA{ma_short}'] > data[f'MA{ma_long}']) &
-                        (data[f'MA{ma_short}'].shift(1) <= data[f'MA{ma_long}'].shift(1))
-                    )
-                    data['signal_sell'] = (
-                        (data[f'MA{ma_short}'] < data[f'MA{ma_long}']) &
-                        (data[f'MA{ma_short}'].shift(1) >= data[f'MA{ma_long}'].shift(1))
-                    )
+                    strategy_fn = StrategyFactory.ma_cross(fast=ma_fast,
+                                                           slow=ma_slow)
+                    _need = ma_slow + 1
+                elif strategy == "MACD":
+                    strategy_fn = StrategyFactory.macd_cross(
+                        fast=macd_fast, slow=macd_slow, signal=macd_signal)
+                    _need = macd_slow + macd_signal
                 else:
-                    data = st.session_state.generator.generate_signals(data)
+                    _gen_used = _build_generator(_sig_over)
+                    data = _gen_used.generate_signals(data)
+                    strategy_fn = _signal_column_strategy
+                    _need = 0
 
-                # 创建回测引擎
-                # 引擎 A 仓位维接线 (plan §5.1 阶段 6): 加载优化参数时
-                # 止损/止盈/追踪止损取 params; 单只仓位 = 滑杆与
-                # position_size_pct 取小 (不超优化口径, 引擎 B 同款钳制)。
-                # 未加载 → 旧 PositionConfig 出厂默认 (零回归, 不走
-                # ParameterSpace 仓位默认 — 两者刻度不同)
-                _p = st.session_state.optimized_params
-                if _p:
-                    _sizing = min(position_size / 100,
-                                  float(_p.get('position_size_pct', 1.0)))
-                    position_config = position_config_from_params(
-                        _p, sizing_value=_sizing, max_position_pct=0.5)
-                else:
-                    position_config = PositionConfig(
-                        sizing_value=position_size / 100,
-                        max_position_pct=0.5)
+                # 预热不足 → 如实提示 (不静默零交易)
+                if _need and len(data) < _need:
+                    st.warning(f"数据长度 {len(data)} 根 < 策略预热需求 {_need} 根"
+                               f" → 不会产生信号")
+
+                # 创建回测引擎 (仓位配置与面板共用同一份 → 显示 = 生效)
                 engine = BacktestEngine(
                     initial_cash=initial_cash,
                     position_config=position_config
                 )
 
-                # 运行回测
-                def simple_strategy(data):
-                    if len(data) < 2:
-                        return 0
-                    latest = data.iloc[-1]
-                    if latest.get('signal_buy', 0) == 1:
-                        return 1  # 买入
-                    elif latest.get('signal_sell', 0) == 1:
-                        return -1  # 卖出
-                    return 0  # 持有
-
-                result = engine.run(data, simple_strategy, symbol=symbol)
+                result = engine.run(data, strategy_fn, symbol=symbol)
 
                 # 显示结果
                 st.success("回测完成！")
+
+                # 生效参数摘要 (结果与参数一一对应, 可追溯)
+                _eff = {**_ind_eff,
+                        **(effective_signal_params(_gen_used)
+                          if _gen_used is not None else _sig_eff),
+                        **_pos_eff}
+                st.caption("本次回测生效参数: "
+                           + format_effective_summary(_eff, _source))
 
                 st.divider()
                 st.subheader("📊 回测结果")

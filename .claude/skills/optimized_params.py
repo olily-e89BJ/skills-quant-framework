@@ -197,3 +197,128 @@ def resolve_regime_params(filepath, regime='auto', current_regime=None,
         return params, {'regime_requested': 'auto', 'regime_used': used,
                         'system_name': None, 'fallback': fallback}
     return params
+
+
+# =============================================================================
+# 生效参数解析 (web 回测页「显示 = 生效」口径)
+# =============================================================================
+#
+# 优化参数下发后, 页面上显示的每个参数都必须等于**回测实际消费**的那个值。
+# 三组维度的出厂口径互不相同 —— 不能统一用 `ParameterSpace.get_defaults()`
+# 兜底:
+#
+#   指标维: 出厂规范默认 == 出厂指标路径 (MA5/10/20/60 + MACD 12/26/9 +
+#           RSI 14 + KDJ 9 + BB 20/2.0 + ATR 14) 逐位一致
+#   信号维: 出厂 `SignalGenerator()` 投票阈值 2.0/2.0 —— 与规范默认
+#           (3.0/4.0) **不同** → 以在跑的生成器实例为准
+#   仓位维: 出厂 `PositionConfig` 止损 8% / 止盈 20%(未启用) / 追踪 5% ——
+#           与规范默认 (12%/30%/10%) **不同** → 以在跑的实例为准
+#
+# 故: 指标维从 params/规范默认取, 信号维与仓位维从**运行时对象**反推。
+
+_GROUP_LABELS = {'indicator': '指标', 'scoring': '评分权重',
+                 'signal': '信号阈值', 'position': '仓位'}
+
+
+def effective_indicator_params(loaded_params=None) -> dict:
+    """指标维生效值: 出厂规范默认 + 已加载 params 逐键覆盖。
+
+    出厂值取 `ParameterSpace` 规范默认 —— 与 `stock_data_fetcher`
+    出厂路径 (MA5/10/20/60 + MACD 12/26/9 + RSI 14 + KDJ 9 +
+    BB 20/2.0 + ATR 14) 逐位一致, 所以「未加载优化参数」时
+    显示值就是真正在跑的值。
+    """
+    from parameter_space import ParameterSpace
+    out = {p.name: p.default for p in ParameterSpace.get_indicator_params()}
+    if loaded_params:
+        for name in out:
+            if name in loaded_params:
+                out[name] = loaded_params[name]
+    return out
+
+
+def effective_signal_params(generator) -> dict:
+    """信号维生效值: 直接读**在跑的生成器实例**。
+
+    出厂 `SignalGenerator()` 的投票阈值是 2.0/2.0, 与 `ParameterSpace`
+    规范默认 (3.0/4.0) 不同 → 此处不抄规范默认, 以运行对象为准。
+    """
+    if generator is None:
+        return {}
+    sp = dict(getattr(generator, 'scoring_params', None) or {})
+    return {
+        'buy_threshold': float(generator.buy_threshold),
+        'sell_threshold': float(generator.sell_threshold),
+        'score_buy_threshold': float(sp.get('score_buy_threshold', 60.0)),
+        'score_sell_threshold': float(sp.get('score_sell_threshold', 35.0)),
+        'w_trend': float(sp.get('w_trend', 30)),
+        'w_momentum': float(sp.get('w_momentum', 25)),
+        'w_risk': float(sp.get('w_risk', 15)),
+        'w_performance': float(sp.get('w_performance', 30)),
+    }
+
+
+def effective_position_params(config, min_holding_days=None) -> dict:
+    """仓位维生效值: 从**在跑的 PositionConfig 实例**反推。
+
+    出厂 `PositionConfig` 口径 (止损 8% / 止盈 20% 且未启用 / 追踪 5%)
+    与 `ParameterSpace` 规范默认 (12%/30%/10%) 不同 → 以实例为准。
+
+    `min_holding_days` 引擎 A **不消费** (缺口已文档化), 此处只如实
+    展示优化侧取值, 不新造出场闸门。
+    """
+    from parameter_space import ParameterSpace
+    if min_holding_days is None:
+        min_holding_days = ParameterSpace.get_defaults()['min_holding_days']
+    out = {
+        'min_holding_days': int(min_holding_days),
+    }
+    if config is not None:
+        out.update({
+            'stop_loss_pct': float(config.stop_loss_pct),
+            'take_profit_pct': float(config.take_profit_pct),
+            'trailing_stop_pct': float(config.trailing_stop_pct),
+            'position_size_pct': float(config.sizing_value),
+            'take_profit_enabled': bool(config.take_profit_enabled),
+        })
+    return out
+
+
+def params_overview_rows(effective: dict, notes: dict = None) -> list:
+    """26 维生效参数明细 (组 / 参数 / 生效值 / 备注)。
+
+    行序 = `ParameterSpace.get_all_params()` 规范顺序 (单一真相源);
+    `effective` 为展平的 {参数名: 生效值} 字典。
+    """
+    from parameter_space import ParameterSpace
+    notes = notes or {}
+    rows = []
+    for pdef in ParameterSpace.get_all_params():
+        rows.append({
+            '组': _GROUP_LABELS.get(pdef.group, pdef.group),
+            '参数': pdef.name,
+            '生效值': effective.get(pdef.name),
+            '备注': notes.get(pdef.name, ''),
+        })
+    return rows
+
+
+def format_effective_summary(effective: dict, source: str = '') -> str:
+    """生效参数一行摘要 (回测结果区用: 结果与参数一一对应)。"""
+    e = effective
+
+    def _pct(name):
+        v = e.get(name)
+        return f"{v:.1%}" if isinstance(v, (int, float)) else '—'
+
+    parts = [
+        f"MA {e.get('ma_fast')}/{e.get('ma_mid')}/{e.get('ma_slow')}",
+        f"MACD {e.get('macd_fast')}/{e.get('macd_slow')}/{e.get('macd_signal')}",
+        f"RSI {e.get('rsi_period')}",
+        f"评分阈值 买{e.get('score_buy_threshold')}/卖{e.get('score_sell_threshold')}",
+        f"投票阈值 买{e.get('buy_threshold')}/卖{e.get('sell_threshold')}",
+        f"仓位 止损{_pct('stop_loss_pct')} 止盈{_pct('take_profit_pct')} "
+        f"追踪{_pct('trailing_stop_pct')} 仓位比例{_pct('position_size_pct')}",
+    ]
+    out = ' · '.join(parts)
+    return f"{out} (来源: {source})" if source else out

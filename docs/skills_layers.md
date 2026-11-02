@@ -206,6 +206,8 @@ ensure_calendar()   # 显式注入 / 本地 JSON 缓存 / 本地指数 parquet �
 
 **优化结果下发（`optimized_params.py`）**：`load_optimized_params(filepath, regime=)` 按体制选 `systems[].params`；`resolve_regime_params(filepath, regime='auto')` = 当前体制判定（`current_market_regime()`，本地指数离线判定，无数据→None）→ 命中专属体系用之，否则**降级全局**（`info['fallback']` 如实记录，不阻断）。web 侧边栏下拉的「自动（当前体制，失败则全局）」即此入口。
 
+**web 回测页「显示 = 生效」**：策略回测页的策略参数面板显示的每个值 = 回测实际消费的那个值。生效参数一律**从运行时对象反推**（`optimized_params.effective_indicator_params` / `effective_signal_params` / `effective_position_params`），不另抄一份默认值——三组维度出厂口径互不相同：指标维 = `ParameterSpace` 规范默认（与出厂指标路径逐位一致）；信号维 = 在跑的 `SignalGenerator` 实例（出厂投票阈值 **2.0/2.0**，非规范默认 3.0/4.0）；仓位维 = 在跑的 `PositionConfig` 实例（出厂止损 8% / 止盈 20% **且 `take_profit_enabled=False`** / 追踪 5%）。控件量程取 `ParameterSpace.get_param_def(...).low/high`（任意优化取值都装得下），用户改动标「已手动覆盖」。策略真身：`MA交叉` → `StrategyFactory.ma_cross`、`MACD` → `StrategyFactory.macd_cross`（此前两者与「多因子」同走信号生成器）、`多因子` → 信号层 `signal_buy/signal_sell` 列。
+
 **仓位维落点**：引擎 A 经 `backtest_framework.position_config_from_params(params)`（止损/止盈/追踪止损 + `sizing_value=position_size_pct`，显式覆盖优先）；引擎 B 直接消费 params 同名键；阶段 7 `QuantWorkflow.position_advice` 建议金额 = min(固定比例风险预算, position_size_pct×capital)。**已知缺口**：引擎 A 无 `min_holding_days` 出场闸门（不新造，仅文档化——该键目前仅引擎 B `params.get('min_holding_days', 0)` 消费）。
 
 ## 变更守则

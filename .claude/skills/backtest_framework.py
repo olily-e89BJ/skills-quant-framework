@@ -25,7 +25,7 @@ from core import suspension as _suspension
 from core.indicators import (rsi as _core_rsi, atr as _core_atr,
                               true_range as _core_true_range, sma as _core_sma,
                               macd as _core_macd, bollinger as _core_bollinger)
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from enum import Enum
 import warnings
 warnings.filterwarnings('ignore')
@@ -81,6 +81,17 @@ class PositionConfig:
                 f"PositionConfig.max_position_pct={self.max_position_pct} "
                 f"为无上限配置(单票可满仓), 实盘建议 ≤0.5",
                 stacklevel=2)
+
+    @classmethod
+    def factory_defaults(cls) -> dict:
+        """出厂口径字段默认 (不构造实例 → 不触发 max_position_pct 告警)。
+
+        出厂回测路径实际生效的仓位口径是本类字段默认 (止损 8% /
+        止盈 20% 且 `take_profit_enabled=False` / 追踪 5%), **不是**
+        `ParameterSpace` 规范默认 (12% / 30% / 10%)。web 回测页用它
+        播种滑杆, 保证「显示 = 生效」且未加载优化参数时数值不变。
+        """
+        return {f.name: f.default for f in fields(cls)}
 
 
 def position_config_from_params(params=None, **overrides):
