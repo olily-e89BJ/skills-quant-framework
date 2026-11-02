@@ -479,18 +479,27 @@ class StockDataFetcher:
 
         return fundamental
 
-    def calculate_technical_indicators(self, df):
+    def calculate_technical_indicators(self, df, params=None):
         """
         计算常用技术指标
 
         Args:
             df: 包含OHLCV数据的DataFrame
+            params: 优化器下发参数字典 (可选)。None → 出厂周期 (零回归);
+                给定 → 走 indicator_params.compute_params_indicators
+                (params 周期列 + 出厂锚点列, 见该模块口径)
 
         Returns:
             添加技术指标的DataFrame
         """
         if df.empty or '收盘' not in df.columns:
             return df
+
+        if params:
+            # params 驱动周期 (单一真相源: indicator_params)
+            from indicator_params import compute_params_indicators
+            df = compute_params_indicators(df, params)
+            return ensure_change_pct(df)
 
         # 共享指标引擎
         eng = IndicatorEngine(df)

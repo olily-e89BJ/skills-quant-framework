@@ -30,6 +30,32 @@ except ImportError as e:
     warnings.warn(f"Matplotlib not available: {e}. Chart functions will be disabled.")
 
 
+def _resolve_ma(df: pd.DataFrame, period: int):
+    """均线序列解析 (修 R3: 图上均线与驱动信号同口径)。
+
+    优先级:
+    1. params 周期列 (PARAMS_COLUMN_MAP 桥接: MA5→MA_Fast / MA10→MA_Mid /
+       MA20→MA_Slow) — 帧内存在即与信号层同一条线
+    2. 帧内出厂锚点列 `MA{period}` (选股/技术评分网格, 不随 params)
+    3. 回退: 现场 sma 自算 (裸帧, 旧行为)
+
+    Returns:
+        (序列, 标签) — 标签 = 实际取用的列名 (口径如实)
+    """
+    alias = None
+    try:
+        from indicator_params import PARAMS_COLUMN_MAP
+        alias = PARAMS_COLUMN_MAP.get(f'MA{period}')
+    except ImportError:
+        pass
+    if alias and alias in df.columns:
+        return df[alias], alias
+    col = f'MA{period}'
+    if col in df.columns:
+        return df[col], col
+    return _core_sma(df['收盘'], period), col
+
+
 class ChartStyle:
     """图表样式配置"""
     def __init__(self):
@@ -126,11 +152,11 @@ class ChartVisualizer:
             ax1.bar(row['date_num'], height, bottom=bottom, width=self.style.candle_width,
                      color=color, alpha=0.8, edgecolor=color)
 
-        # 绘制均线
+        # 绘制均线 (params 周期列优先, 缺列回退锚点/自算 — _resolve_ma)
         if ma_periods:
             for period in ma_periods:
-                ma = _core_sma(plot_data['收盘'], period)
-                ax1.plot(plot_data['date_num'], ma, label=f'MA{period}',
+                ma, label = _resolve_ma(plot_data, period)
+                ax1.plot(plot_data['date_num'], ma, label=label,
                         linewidth=self.style.line_width, alpha=0.8)
 
         ax1.set_title(title or f"{symbol} K线图", fontsize=14, fontweight='bold')
@@ -494,11 +520,11 @@ class ChartVisualizer:
             ax1.bar(row['date_num'], height, bottom=bottom, width=self.style.candle_width,
                      color=color, alpha=0.8, edgecolor=color)
 
-        # 绘制均线
-        ma5 = _core_sma(plot_data['收盘'], 5)
-        ma20 = _core_sma(plot_data['收盘'], 20)
-        ax1.plot(plot_data['date_num'], ma5, label='MA5', linewidth=1, alpha=0.8)
-        ax1.plot(plot_data['date_num'], ma20, label='MA20', linewidth=1, alpha=0.8)
+        # 绘制均线 (params 周期列优先, 与信号同口径 — _resolve_ma)
+        ma5, lab5 = _resolve_ma(plot_data, 5)
+        ma20, lab20 = _resolve_ma(plot_data, 20)
+        ax1.plot(plot_data['date_num'], ma5, label=lab5, linewidth=1, alpha=0.8)
+        ax1.plot(plot_data['date_num'], ma20, label=lab20, linewidth=1, alpha=0.8)
 
         # 标注买卖信号
         # (generate_signals 产出 int 0/1, 旧代码 == True 在
@@ -589,12 +615,13 @@ class ChartVisualizer:
             ax_candle.bar(row['date_num'], height, bottom=bottom, width=0.6,
                           color=color, alpha=0.7)
 
-        ma5 = _core_sma(plot_data['收盘'], 5)
-        ma20 = _core_sma(plot_data['收盘'], 20)
-        ma60 = _core_sma(plot_data['收盘'], 60)
-        ax_candle.plot(plot_data['date_num'], ma5, label='MA5', linewidth=1)
-        ax_candle.plot(plot_data['date_num'], ma20, label='MA20', linewidth=1)
-        ax_candle.plot(plot_data['date_num'], ma60, label='MA60', linewidth=1)
+        # 均线: params 周期列优先, 缺列回退锚点/自算 — _resolve_ma
+        ma5, lab5 = _resolve_ma(plot_data, 5)
+        ma20, lab20 = _resolve_ma(plot_data, 20)
+        ma60, lab60 = _resolve_ma(plot_data, 60)
+        ax_candle.plot(plot_data['date_num'], ma5, label=lab5, linewidth=1)
+        ax_candle.plot(plot_data['date_num'], ma20, label=lab20, linewidth=1)
+        ax_candle.plot(plot_data['date_num'], ma60, label=lab60, linewidth=1)
         ax_candle.set_title(f"{symbol} 综合分析", fontsize=14, fontweight='bold')
         ax_candle.grid(True, color=self.style.grid_color, alpha=0.5)
         ax_candle.legend(loc='upper left')

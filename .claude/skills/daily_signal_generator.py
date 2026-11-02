@@ -25,7 +25,6 @@ import subprocess
 from historical_data_manager import HistoricalDataManager
 from parameter_space import ParameterSpace
 from core.indicators import sma as _core_sma
-from core.indicator_engine import IndicatorEngine
 from signal_generator import SignalGenerator, SIGNAL_LABELS, describe_signals
 import trade_constraints
 
@@ -150,6 +149,10 @@ def compute_indicators(data: pd.DataFrame, params: dict) -> pd.DataFrame:
     """
     用指定参数计算技术指标
 
+    委托 `indicator_params.compute_params_indicators` (params→周期映射的
+    单一真相源, 与主流程同源), 本函数保留 S2 列契约 (`BB_Mid` 别名 +
+    大写风格列)。数值与委托前逐位一致 (同 params → 同 engine 调用)。
+
     Parameters:
     -----------
     data : pd.DataFrame
@@ -161,52 +164,11 @@ def compute_indicators(data: pd.DataFrame, params: dict) -> pd.DataFrame:
     --------
     pd.DataFrame : 添加了技术指标的DataFrame
     """
-    df = data.copy()
-    # 共享指标引擎: 公式唯一来源 core.indicators
-    eng = IndicatorEngine(df)
+    from indicator_params import compute_params_indicators
 
-    # 移动平均线
-    ma_fast = int(params.get('ma_fast', 5))
-    ma_slow = int(params.get('ma_slow', 20))
-    ma_mid = int(params.get('ma_mid', 10))
-
-    df['MA_Fast'] = eng.ma(ma_fast)
-    df['MA_Mid'] = eng.ma(ma_mid)
-    df['MA_Slow'] = eng.ma(ma_slow)
-
-    # MACD
-    macd_fast = int(params.get('macd_fast', 12))
-    macd_slow = int(params.get('macd_slow', 26))
-    macd_signal_p = int(params.get('macd_signal', 9))
-
-    dif, dea, hist = eng.macd(macd_fast, macd_slow, macd_signal_p)
-    df['MACD'], df['MACD_Signal'], df['MACD_Hist'] = dif, dea, hist
-
-    # RSI（core 权威口径，消灭 replace(NaN) 分歧）
-    rsi_period = int(params.get('rsi_period', 14))
-    df['RSI'] = eng.rsi(rsi_period)
-
-    # KDJ
-    kdj_n = int(params.get('kdj_n', 9))
-    k, d, _j = eng.kdj(kdj_n)
-    df['K'], df['D'] = k, d
-
-    # 布林带
-    bb_period = int(params.get('bb_period', 20))
-    bb_std_mult = float(params.get('bb_std', 2.0))
-    upper, middle, lower, _std = eng.bollinger(bb_period, bb_std_mult)
-    df['BB_Mid'] = middle
-    df['BB_Upper'] = upper
-    df['BB_Lower'] = lower
-
-    # ATR (core Wilder 单一真相源, 旧: SMA)
-    atr_period = int(params.get('atr_period', 14))
-    df['ATR'] = eng.atr(atr_period)
-
-    # 成交量均线
-    df['Vol_MA5'] = eng.volume_ma(5)
-    df['Vol_MA20'] = eng.volume_ma(20)
-
+    df = compute_params_indicators(data.copy(), params)
+    # S2 历史列名契约: 布林中轨 (主流程口径为 BB_Middle, 此处保留 BB_Mid)
+    df['BB_Mid'] = df['BB_Middle']
     return df
 
 

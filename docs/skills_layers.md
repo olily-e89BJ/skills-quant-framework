@@ -23,6 +23,7 @@
 │              technical_analyzer (单股综合技术分析)          │
 ├────────────────────────────────────────────────────────┤
 │ 指标层       core/indicators (RSI/ATR 权威口径),           │
+│              indicator_params (参数周期下发),               │
 │              advanced_indicators, trend_indicators,       │
 │              pattern_recognition                          │
 ├────────────────────────────────────────────────────────┤
@@ -71,7 +72,8 @@
 ## 信号/分析层（日频，单股）
 
 - `signal_generator.SignalGenerator`：**全项目唯一的信号打分实现**。输出 7 个 tier 分项列 + `signal_buy`/`signal_sell`（互斥）+ `signal_buy_score`/`signal_sell_score` + `signal_strength`；报告措辞按档位值翻译（`SIGNAL_LABELS` 表，`daily_signal_generator` 的 reasons 同源）。
-- `technical_analyzer.TechnicalAnalyzer.analyze(symbol, days)`：单股综合技术分析（趋势/支撑压力/形态/评分），输出 dict 报告，供 UI 与人工决策，不直接下单。
+  - **优化参数桥接**：`generator_from_params(params, column_map=PARAMS_COLUMN_MAP)` 把契约列名（`MA5/MA10/MA20`）桥接到 params 周期列（`MA_Fast/MA_Mid/MA_Slow`，`indicator_params.PARAMS_COLUMN_MAP`）。显式映射列缺失 → **抛错**（R5，不静默降级）；未映射缺列仍返回 None（出厂路径零回归）。主流程（`QuantWorkflow` / web 加载优化参数）必须显式传 column_map——便捷函数 `generator_from_params(params)` **不**默认注入（会破坏 factory 列 + identity map 的既有用法）。
+- `technical_analyzer.TechnicalAnalyzer.analyze(symbol, days)`：单股综合技术分析（趋势/支撑压力/形态/评分），输出 dict 报告，供 UI 与人工决策，不直接下单。**保持出厂标定，不接优化 params**（R4 边界）。
 
 ## L3 执行/风控层
 
@@ -146,6 +148,13 @@ BB_Middle / BB_Lower / BB_Std / TR / ATR / Vol_MA{p} / VWAP / OBV`；
 **门禁**：业务模块内不得再出现裸 `.ewm(...)`/`.rolling(...).mean()` 指标公式
 （`tests/test_indicator_engine.py` 源码级扫描）。
 
+**优化参数→指标周期下发（`indicator_params.py`）**：`compute_params_indicators(df, params)` 是主流程指标层的 params 路由单一真相源——周期只来自 `resolve_params(params)`（`ParameterSpace.get_defaults()` + 覆盖），公式仍全走 `IndicatorEngine`：
+
+- **params 周期列**（S2 大写风格，供信号层消费）：`MA_Fast/MA_Mid/MA_Slow`、`MACD*`、`RSI`、`K/D/J`、`BB_*`、`TR/ATR`、`Vol_MA5/Vol_MA20`；
+- **出厂锚点列**（不随 params，R4）：`MA5/MA10/MA20/MA60`、`EMA20/50` —— 选股/技术评分/图表锚定网格保持出厂标定；
+- `PARAMS_COLUMN_MAP = {'MA5':'MA_Fast','MA10':'MA_Mid','MA20':'MA_Slow'}` 是**列名桥接**（收敛=公式同源，非列名归一）；`chart_visualizer._resolve_ma` 同序消费（params 列 > 锚点列 > 现场自算）；
+- **门禁**：`tests/test_main_flow_params.py`（7 组：零回归 / 周期真变 / 信号消费+R5 / 与引擎 B 逐位同源 / 仓位维落地 / 体制选择 / 源码级接线）。
+
 ### DataFrame 列名契约
 
 - `EMA20` 为规范名；`EMA_20` 为 `technical_analyzer` 保留的向后兼容别名（两列同值）。
@@ -194,6 +203,10 @@ ensure_calendar()   # 显式注入 / 本地 JSON 缓存 / 本地指数 parquet �
 所有引擎 t+1 成交、成本、涨跌停经 `execution_model` 统一；黄金指标快照见 `tests/test_backtest_honesty.py::TestGoldenMetrics`。
 
 优化器关键口径（详见 `API_REFERENCE.md` §4.4）：适应度只由样本内窗口计算；OOS 指标只报告不参与选择；`confidence` = 适应度 [0,1] 夹取；逐股失败记账并按比例惩罚。
+
+**优化结果下发（`optimized_params.py`）**：`load_optimized_params(filepath, regime=)` 按体制选 `systems[].params`；`resolve_regime_params(filepath, regime='auto')` = 当前体制判定（`current_market_regime()`，本地指数离线判定，无数据→None）→ 命中专属体系用之，否则**降级全局**（`info['fallback']` 如实记录，不阻断）。web 侧边栏下拉的「自动（当前体制，失败则全局）」即此入口。
+
+**仓位维落点**：引擎 A 经 `backtest_framework.position_config_from_params(params)`（止损/止盈/追踪止损 + `sizing_value=position_size_pct`，显式覆盖优先）；引擎 B 直接消费 params 同名键；阶段 7 `QuantWorkflow.position_advice` 建议金额 = min(固定比例风险预算, position_size_pct×capital)。**已知缺口**：引擎 A 无 `min_holding_days` 出场闸门（不新造，仅文档化——该键目前仅引擎 B `params.get('min_holding_days', 0)` 消费）。
 
 ## 变更守则
 

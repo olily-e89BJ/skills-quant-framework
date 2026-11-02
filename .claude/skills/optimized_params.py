@@ -109,3 +109,91 @@ def load_optimized_params(filepath, regime=None, use_weighted_scoring=None):
           f"regime={system.get('regime')!r} n_params={len(params)} "
           f"use_weighted_scoring={use_weighted_scoring}")
     return out
+
+
+def current_market_regime(data_dir="./stock_data", index_code="000300"):
+    """按当前大盘体制打标签 (离线优先, 无网络依赖)。
+
+    口径: 本地指数行情 (`historical/index/` parquet → quotes CSV,
+    `HistoricalDataManager.load_index` 三级中的前两级, 不联网) →
+    `market_regime_classifier.MarketRegimeClassifier.classify` (与优化结果
+    的 regime_labels 同一标签体系: BULL/BEAR/SIDEWAYS/CRASH/RECOVERY)。
+
+    Returns:
+    --------
+    str | None: 最后一根交易日的体制标签; 无本地指数数据/数据过短/任何
+    异常 → None (调用方降级全局 + 如实提示, 不臆造体制)。
+    """
+    try:
+        from historical_data_manager import HistoricalDataManager
+        from market_regime_classifier import MarketRegimeClassifier
+
+        mgr = HistoricalDataManager(data_dir=data_dir)
+        df = mgr.load_index(index_code)
+        if df is None or len(df) == 0:
+            print(f"[WARN] 本地无指数 {index_code} 数据 → 体制判定不可用")
+            return None
+
+        clf = MarketRegimeClassifier(data_dir=data_dir)
+        clf.index_data = df
+        regimes = clf.classify()
+        if regimes is None or len(regimes) == 0:
+            return None
+        return str(regimes.iloc[-1])
+    except Exception as e:  # 数据缺失/过短 → 如实降级, 不阻断参数加载
+        print(f"[WARN] 体制判定失败 ({e}) → 不可用")
+        return None
+
+
+def resolve_regime_params(filepath, regime='auto', current_regime=None,
+                          use_weighted_scoring=None, with_info=False):
+    """按体制选择参数 (regime='auto' 时自动判定 + 全局降级)。
+
+    Parameters:
+    -----------
+    filepath : str
+        save_results 落盘 JSON
+    regime : str | 'auto' | None
+        'auto' → 用 current_market_regime() 判定 (或调用方传入
+        current_regime), 命中专属体系用之, 否则降级全局 (regime=None);
+        其余同 load_optimized_params (None=全局优先, 字符串=精确匹配)
+    current_regime : str | None
+        调用方已判定的体制 (跳过重复判定); 'auto' 模式专用
+    with_info : bool
+        True → 返回 (params, info); info 含 regime_used/system_name/fallback
+
+    Returns:
+    --------
+    dict | (dict, dict): load_optimized_params 口径的参数字典
+    """
+    if regime != 'auto':
+        params = load_optimized_params(filepath, regime=regime,
+                                       use_weighted_scoring=use_weighted_scoring)
+        if with_info:
+            return params, {'regime_requested': regime, 'regime_used': regime,
+                            'system_name': None, 'fallback': False}
+        return params
+
+    cur = current_regime if current_regime is not None else current_market_regime()
+    fallback = False
+    used = None
+    if cur:
+        try:
+            params = load_optimized_params(filepath, regime=cur,
+                                           use_weighted_scoring=use_weighted_scoring)
+            used = cur
+        except ValueError:
+            print(f"[WARN] 当前体制 {cur!r} 无专属体系 → 降级全局")
+            params = load_optimized_params(filepath, regime=None,
+                                           use_weighted_scoring=use_weighted_scoring)
+            fallback = True
+    else:
+        print("[WARN] 体制判定不可用 → 降级全局")
+        params = load_optimized_params(filepath, regime=None,
+                                       use_weighted_scoring=use_weighted_scoring)
+        fallback = True
+
+    if with_info:
+        return params, {'regime_requested': 'auto', 'regime_used': used,
+                        'system_name': None, 'fallback': fallback}
+    return params

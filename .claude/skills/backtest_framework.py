@@ -83,6 +83,35 @@ class PositionConfig:
                 stacklevel=2)
 
 
+def position_config_from_params(params=None, **overrides):
+    """params 仓位维 → PositionConfig (引擎 A 阶段 6/7 接线, plan §5.1)。
+
+    - `stop_loss_pct` / `take_profit_pct` / `trailing_stop_pct` 取 params
+      (缺省 ParameterSpace 出厂); 止盈同时置 `take_profit_enabled=True`
+      (否则 take_profit_pct 不生效 — 显式可覆盖回 False)
+    - `sizing_value` 默认取 `position_size_pct` (仓位比例), 可用
+      `sizing_value=...` 覆盖 (如 web UI 单只仓位滑杆)
+    - `min_holding_days`: **引擎 A 无对应出场闸门** (缺口, 见 plan §8.1) —
+      此处不消费、不新造; 引擎 B 经 params 直接消费
+
+    Overrides 其余键直通 PositionConfig (显式覆盖优先)。
+    """
+    from parameter_space import ParameterSpace
+
+    p = ParameterSpace.get_defaults()
+    if params:
+        p.update(params)
+    cfg = dict(
+        sizing_value=float(p['position_size_pct']),
+        stop_loss_pct=float(p['stop_loss_pct']),
+        take_profit_pct=float(p['take_profit_pct']),
+        take_profit_enabled=True,
+        trailing_stop_pct=float(p['trailing_stop_pct']),
+    )
+    cfg.update(overrides)
+    return PositionConfig(**cfg)
+
+
 @dataclass
 class Position:
     """持仓信息"""

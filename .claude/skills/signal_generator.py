@@ -134,10 +134,21 @@ class SignalGenerator:
         self.column_map = dict(column_map or {})
 
     def _col(self, df, name):
-        """按 column_map 取指标列; 列不存在返回 None (调用方按缺列降级)"""
+        """按 column_map 取指标列。
+
+        - 显式映射 (name 在 column_map 中) 且目标列缺失 → **抛错**
+          (R5: 映射是调用方显式契约, 静默降级会让分项恒 0 还以为信号正常)
+        - 未映射 (契约列名即真实列名) 且列缺失 → None (出厂路径缺列降级,
+          逐位保持旧行为)
+        """
         real = self.column_map.get(name, name)
         if real in df.columns:
             return df[real]
+        if name in self.column_map:
+            raise ValueError(
+                f"column_map 映射列缺失: {name!r} → {real!r} — "
+                "先经 indicator_params.compute_params_indicators "
+                "(或同源实现) 按 params 计算指标列")
         return None
 
     def generate_signals(self, data):
@@ -214,6 +225,11 @@ class SignalGenerator:
                 "stock_data_fetcher.calculate_technical_indicators 计算")
 
         mid_col = real('MA10')
+        if 'MA10' in self.column_map and mid_col not in df.columns:
+            # 显式映射缺失 → 抛错 (与 _col 的 R5 纪律一致, 不静默回退 rolling(10))
+            raise ValueError(
+                f"column_map 映射列缺失: 'MA10' → {mid_col!r} — "
+                "先经 indicator_params.compute_params_indicators 计算指标列")
         m = pd.DataFrame({
             '收盘': df['收盘'],
             'ma_fast': df[real('MA5')],
@@ -604,11 +620,16 @@ class SignalGenerator:
 
 
 # 便捷函数
-def generator_from_params(params):
+def generator_from_params(params, column_map=None):
     """按下发参数构造生成器: None → 出厂投票制;
     dict → optimized_params.load_optimized_params 下发字典直通
     (阈值/模式/评分参数同源)。web_app 加载优化参数时经此换实例,
-    既有 signal_buy/sell/strength 调用面零改动。"""
+    既有 signal_buy/sell/strength 调用面零改动。
+
+    column_map : S1 契约列名 → 实际列名 (None → 恒等)。主流程加载
+    params 时传 `indicator_params.PARAMS_COLUMN_MAP` 把信号桥接到
+    params 周期列 (指标层须同 params 计算, 缺映射列抛错 — R5)。
+    """
     if not params:
         return SignalGenerator()
     return SignalGenerator(
@@ -619,7 +640,8 @@ def generator_from_params(params):
         # 优化器参数空间含 RSI 阈值维 (parameter_space RSI_OVERSOLD/OVERBOUGHT),
         # 下发时必须真的生效 (缺键 → 出厂 30/70)
         rsi_oversold=float(params.get('rsi_oversold', 30.0)),
-        rsi_overbought=float(params.get('rsi_overbought', 70.0)))
+        rsi_overbought=float(params.get('rsi_overbought', 70.0)),
+        column_map=column_map)
 
 
 def generate_signals(data, params=None):

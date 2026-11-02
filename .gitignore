@@ -126,3 +126,6 @@ skills-quant-framework-analysis-extracted/
 # Claude settings
 .claude/settings.json
 .claude/settings.local.json
+
+# Local review notes (审查结论草稿, 不入库)
+plan/

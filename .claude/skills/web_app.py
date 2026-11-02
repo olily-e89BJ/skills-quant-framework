@@ -41,9 +41,12 @@ IMPORT_ERROR: Optional[str] = None
 try:
     from stock_data_fetcher import StockDataFetcher
     from signal_generator import SignalGenerator, generator_from_params
-    from optimized_params import load_optimized_params, list_systems
+    from optimized_params import (load_optimized_params, list_systems,
+                                  resolve_regime_params)
+    from indicator_params import PARAMS_COLUMN_MAP
     from chart_visualizer import ChartVisualizer
-    from backtest_framework import BacktestEngine, PositionConfig
+    from backtest_framework import (BacktestEngine, PositionConfig,
+                                    position_config_from_params)
     from portfolio_manager import PortfolioManager
     from realtime_quote import RealTimeQuoteAPI
     # 统一信号契约: web 层消费 Signal, 不在各页面自拼信号字典
@@ -163,6 +166,8 @@ def init_session_state():
     # 加载 best_params.json 后 generator 换实例, 信号面全站跟随
     if 'optimized_params' not in st.session_state:
         st.session_state.optimized_params = None
+    if 'optimized_system_label' not in st.session_state:
+        st.session_state.optimized_system_label = None
 
     if 'selected_stock' not in st.session_state:
         st.session_state.selected_stock = '600519'
@@ -233,18 +238,27 @@ def render_sidebar():
 
         st.divider()
 
-        # 优化参数下发 (best_params.json → 信号层)
-        # 加载后 st.session_state.generator 换实例 — 首页/分析页/信号图/
-        # 回测多因子四个调用面零改动即跟随
+        # 优化参数下发 (best_params.json → 信号层 + 指标层)
+        # 加载后 st.session_state.generator 换实例 (column_map 桥接 params
+        # 周期列) + 指标层三处调用同步传 optimized_params — 择时链路口径统一
         st.subheader("🎯 优化参数")
         _opt_params = st.session_state.optimized_params
         if _opt_params:
             _mode = ("加权评分" if _opt_params.get('use_weighted_scoring')
                      else "投票制")
-            st.caption(f"已加载 {len(_opt_params)} 键 · {_mode}")
+            # 口径标注 (plan §5.2.4): 模式 + 快中慢线/RSI 周期 + 体系
+            _periods = (f"MA {_opt_params.get('ma_fast', 5)}/"
+                        f"{_opt_params.get('ma_mid', 10)}/"
+                        f"{_opt_params.get('ma_slow', 20)}"
+                        f" · RSI {int(_opt_params.get('rsi_period', 14))}")
+            st.caption(f"已加载 {len(_opt_params)} 键 · {_mode} · {_periods}")
+            _sys_label = st.session_state.optimized_system_label
+            if _sys_label:
+                st.caption(f"体系: {_sys_label}")
             if st.button("清除 (回出厂投票制)", key="sidebar_params_clear"):
                 st.session_state.optimized_params = None
                 st.session_state.generator = SignalGenerator()
+                st.session_state.optimized_system_label = None
                 st.rerun()
 
         params_path = st.text_input(
@@ -261,32 +275,54 @@ def render_sidebar():
             except Exception as e:
                 st.caption(f"结果文件读取失败: {e}")
 
+        # 「自动」语义 = 按当前大盘体制选体系 (非旧版"全局优先") —
+        # 与手动项同名双义禁止 (plan P4); 判定不可用/无专属体系 → 全局降级
+        _AUTO_OPT = "自动（当前体制，失败则全局）"
         regime_options = None
         regime_choice = None
         if systems:
-            regime_options = ["自动 (全局优先)"] + [
+            regime_options = [_AUTO_OPT] + [
                 f"{s['regime'] or 'GLOBAL'} · {s['name']}" for s in systems]
             regime_choice = st.selectbox(
                 "体制系统", regime_options, key="sidebar_params_regime",
-                help="多体制结果需显式选择; 自动=全局系统优先")
+                help="自动: 离线按当前大盘体制 (market_regime_classifier 口径) "
+                     "选专属体系, 判定不可用/无专属体系 → 全局; 其余手动精确选择")
         else:
             st.caption("检测到结果文件后可选择体制系统")
 
         if systems and st.button("⬇️ 加载参数", key="sidebar_params_load"):
-            idx = (regime_options.index(regime_choice) - 1
-                   if regime_choice and regime_choice != "自动 (全局优先)"
-                   else -1)
-            regime = None if idx < 0 else systems[idx]['regime']
+            is_auto = (regime_choice is None
+                       or regime_choice == _AUTO_OPT)
             try:
-                params = load_optimized_params(params_path, regime=regime)
+                if is_auto:
+                    params, info = resolve_regime_params(
+                        params_path, regime='auto', with_info=True)
+                    if info.get('fallback'):
+                        _label = ("体制判定不可用 → 全局体系"
+                                  if info.get('regime_used') is None
+                                  else f"体制 {info['regime_used']} 无专属体系"
+                                       " → 全局体系")
+                    else:
+                        _label = f"体制 {info['regime_used']} → 专属体系"
+                else:
+                    idx = regime_options.index(regime_choice) - 1
+                    params = load_optimized_params(
+                        params_path, regime=systems[idx]['regime'])
+                    _label = (f"{systems[idx]['regime'] or 'GLOBAL'} · "
+                              f"{systems[idx]['name']}")
             except ValueError as e:
                 st.error(str(e))
             else:
                 st.session_state.optimized_params = params
-                st.session_state.generator = generator_from_params(params)
+                # column_map: S1 契约列 → params 周期列 (指标层同 params
+                # 计算, 缺映射列抛错 — R5 静默降级已修)
+                st.session_state.generator = generator_from_params(
+                    params, column_map=PARAMS_COLUMN_MAP)
+                st.session_state.optimized_system_label = _label
                 _mode = ("加权评分" if params.get('use_weighted_scoring')
                          else "投票制")
-                st.success(f"已加载 {len(params)} 键 · {_mode} — 信号即刻生效")
+                st.success(f"已加载 {len(params)} 键 · {_mode} · {_label}"
+                           " — 信号即刻生效")
                 st.rerun()
 
         st.divider()
@@ -528,16 +564,26 @@ def render_analysis():
     st.subheader("📊 技术指标")
 
     # 计算技术指标
-    data = st.session_state.fetcher.calculate_technical_indicators(data)
+    data = st.session_state.fetcher.calculate_technical_indicators(data, st.session_state.optimized_params)
     latest_indicators = data.iloc[-1]
 
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
         st.write("**均线系统**")
-        st.write(f"MA5: {latest_indicators.get('MA5', 0):.2f}")
-        st.write(f"MA20: {latest_indicators.get('MA20', 0):.2f}")
-        st.write(f"MA60: {latest_indicators.get('MA60', 0):.2f}")
+        _p = st.session_state.optimized_params
+        if _p and 'MA_Fast' in data.columns:
+            # 口径跟随信号 (修 R3): 显示与驱动信号同一条 params 周期均线
+            st.write(f"MA快线 {int(_p.get('ma_fast', 5))}: "
+                     f"{latest_indicators.get('MA_Fast', 0):.2f}")
+            st.write(f"MA中线 {int(_p.get('ma_mid', 10))}: "
+                     f"{latest_indicators.get('MA_Mid', 0):.2f}")
+            st.write(f"MA慢线 {int(_p.get('ma_slow', 20))}: "
+                     f"{latest_indicators.get('MA_Slow', 0):.2f}")
+        else:
+            st.write(f"MA5: {latest_indicators.get('MA5', 0):.2f}")
+            st.write(f"MA20: {latest_indicators.get('MA20', 0):.2f}")
+            st.write(f"MA60: {latest_indicators.get('MA60', 0):.2f}")
 
     with col2:
         st.write("**MACD**")
@@ -729,7 +775,7 @@ def render_backtest():
                     return
 
                 # 计算技术指标
-                data = st.session_state.fetcher.calculate_technical_indicators(data)
+                data = st.session_state.fetcher.calculate_technical_indicators(data, st.session_state.optimized_params)
 
                 # 生成信号
                 if strategy == "MA交叉":
@@ -747,12 +793,24 @@ def render_backtest():
                     data = st.session_state.generator.generate_signals(data)
 
                 # 创建回测引擎
+                # 引擎 A 仓位维接线 (plan §5.1 阶段 6): 加载优化参数时
+                # 止损/止盈/追踪止损取 params; 单只仓位 = 滑杆与
+                # position_size_pct 取小 (不超优化口径, 引擎 B 同款钳制)。
+                # 未加载 → 旧 PositionConfig 出厂默认 (零回归, 不走
+                # ParameterSpace 仓位默认 — 两者刻度不同)
+                _p = st.session_state.optimized_params
+                if _p:
+                    _sizing = min(position_size / 100,
+                                  float(_p.get('position_size_pct', 1.0)))
+                    position_config = position_config_from_params(
+                        _p, sizing_value=_sizing, max_position_pct=0.5)
+                else:
+                    position_config = PositionConfig(
+                        sizing_value=position_size / 100,
+                        max_position_pct=0.5)
                 engine = BacktestEngine(
                     initial_cash=initial_cash,
-                    position_config=PositionConfig(
-                        sizing_value=position_size / 100,
-                        max_position_pct=0.5
-                    )
+                    position_config=position_config
                 )
 
                 # 运行回测
@@ -880,6 +938,53 @@ def render_portfolio():
                 st.rerun()
             except Exception as e:
                 st.error(f"创建失败: {str(e)}")
+
+    # 添加持仓: 止损三元组可由优化参数下发 → StopLossManager
+    # (阶段 7 仓位维接线, plan §5.1; PortfolioManager.add_position 已支持)
+    if manager.portfolios:
+        with st.expander("➕ 添加持仓", expanded=False):
+            _names = list(manager.portfolios.keys())
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                sel_pf = st.selectbox("组合", _names, key="add_pos_portfolio")
+            with c2:
+                add_sym = st.text_input("代码", "600519", key="add_pos_symbol")
+            with c3:
+                add_name = st.text_input("名称", "", key="add_pos_name")
+            c4, c5 = st.columns(2)
+            with c4:
+                add_shares = st.number_input(
+                    "股数", min_value=100, value=100, step=100,
+                    key="add_pos_shares")
+            with c5:
+                add_price = st.number_input(
+                    "价格", min_value=0.01, value=10.0, step=0.01,
+                    key="add_pos_price")
+            _p = st.session_state.optimized_params
+            _use_params = False
+            if _p:
+                _use_params = st.checkbox(
+                    f"止损三元组用优化参数 (止损 {float(_p.get('stop_loss_pct', 0)):.1%}"
+                    f" / 止盈 {float(_p.get('take_profit_pct', 0)):.1%}"
+                    f" / 追踪 {float(_p.get('trailing_stop_pct', 0)):.1%})",
+                    value=True, key="add_pos_use_params")
+            if st.button("添加", key="add_pos_submit"):
+                _kwargs = {}
+                if _use_params and _p:
+                    _kwargs = dict(
+                        stop_loss_pct=float(_p.get('stop_loss_pct')),
+                        take_profit_pct=float(_p.get('take_profit_pct')),
+                        trailing_stop_pct=float(_p.get('trailing_stop_pct')))
+                ok = manager.add_position(
+                    sel_pf, add_sym, name=add_name or "",
+                    shares=int(add_shares), price=float(add_price), **_kwargs)
+                if ok:
+                    st.success(
+                        f"已添加 {add_sym} → {sel_pf}"
+                        + (" (止损三元组来自优化参数)" if _kwargs else ""))
+                    st.rerun()
+                else:
+                    st.error("添加失败 (组合不存在, 或现金/集中度约束阻断)")
 
     st.divider()
 
@@ -1309,7 +1414,7 @@ def get_stock_signal(symbol: str) -> Signal:
     try:
         data = get_stock_data(symbol, days=120)
         if data is not None and len(data) > 0:
-            data = st.session_state.fetcher.calculate_technical_indicators(data)
+            data = st.session_state.fetcher.calculate_technical_indicators(data, st.session_state.optimized_params)
             return st.session_state.generator.to_signal(data, symbol=symbol)
     except Exception:
         pass

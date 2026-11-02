@@ -10,15 +10,20 @@ sys.path.append('.')
 class QuantWorkflow:
     """量化分析工作流类"""
 
-    def __init__(self):
-        """初始化工作流"""
+    def __init__(self, params=None):
+        """
+        Args:
+            params: 优化器下发参数字典 (可选)。给定时阶段 2 指标按 params
+                周期计算、阶段 4 信号经 PARAMS_COLUMN_MAP 桥接 (择时链路
+                统一, plan §5.1); None → 出厂口径 (零回归)。
+        """
         # 导入所有模块
         from stock_data_fetcher import StockDataFetcher
         from stock_list_manager import StockList
         from stock_selector import StockSelector
         from technical_analyzer import TechnicalAnalyzer
         from position_analyzer import PositionAnalyzer
-        from signal_generator import SignalGenerator
+        from signal_generator import SignalGenerator, generator_from_params
         from risk_management import RiskMetrics
 
         self.fetcher = StockDataFetcher()
@@ -33,7 +38,14 @@ class QuantWorkflow:
             pass
 
         self.position_analyzer = PositionAnalyzer()
-        self.signal_generator = SignalGenerator()
+        self.params = dict(params) if params else None
+        if self.params:
+            # params 驱动: 信号层桥接到 params 周期列 (缺映射列抛错, R5)
+            from indicator_params import PARAMS_COLUMN_MAP
+            self.signal_generator = generator_from_params(
+                self.params, column_map=PARAMS_COLUMN_MAP)
+        else:
+            self.signal_generator = SignalGenerator()
         self.risk_metrics = RiskMetrics()
 
     def quick_analysis(self, symbol, days=120):
@@ -50,7 +62,7 @@ class QuantWorkflow:
         # 获取股票名称
         name = self.stock_list.get_name(symbol)
 
-        # 技术分析
+        # 技术分析 (评分层保持出厂标定, 不接 params — R4 边界)
         tech_analysis = self.technical_analyzer.analyze(symbol, days=days)
 
         if tech_analysis is None:
@@ -68,7 +80,8 @@ class QuantWorkflow:
                 'name': name,
                 'error': f'数据获取失败: {result.error}'
             }
-        data = self.fetcher.calculate_technical_indicators(result.data)
+        data = self.fetcher.calculate_technical_indicators(
+            result.data, self.params)
         signal = self.signal_generator.get_latest_signal(data)
 
         # 综合判断
@@ -112,6 +125,67 @@ class QuantWorkflow:
             result['position'] = position_analysis
 
         return result
+
+    def position_advice(self, symbol, capital=100000.0, days=120,
+                        risk_per_trade=0.02):
+        """阶段 7 仓位建议 (params 仓位维生效, plan §5.1)。
+
+        - 止损/止盈/追踪止损/仓位比例: params (缺省 = ParameterSpace 出厂)
+        - 建议仓位金额 = min(固定比例法风险预算, position_size_pct × capital)
+          (与引擎 B 同口径取小, `vectorized_backtest.py:628-630`)
+        - ATR 法参考股数: `PositionSizing.atr_based` (ATR 列随 params 周期)
+
+        Args:
+            capital: 总资金
+            risk_per_trade: 单笔风险比例 (如 0.02 = 2%)
+
+        Returns:
+            dict: 仓位建议 (含止损三元组 + 建议金额/参考股数)
+        """
+        from risk_management import PositionSizing
+        from indicator_params import resolve_params
+
+        p = resolve_params(self.params)
+        result = self.fetcher.get_quote_result(symbol, days=days)
+        if not result.ok or len(result.data) == 0:
+            return {'symbol': symbol,
+                    'error': f'数据获取失败: {result.error}'}
+
+        data = self.fetcher.calculate_technical_indicators(
+            result.data, self.params)
+        latest = data.iloc[-1]
+        price = float(latest['收盘'])
+        atr_raw = latest.get('ATR')
+        atr = (float(atr_raw)
+               if atr_raw is not None and atr_raw == atr_raw else 0.0)
+
+        stop_loss_pct = float(p['stop_loss_pct'])
+        risk_amount = capital * risk_per_trade
+        risk_budget = (PositionSizing.fixed_fractional(
+            capital, risk_per_trade, stop_loss_pct)
+            if stop_loss_pct > 0 else 0.0)
+        cap_amount = capital * float(p['position_size_pct'])
+        suggested = min(risk_budget, cap_amount) if risk_budget > 0 else cap_amount
+        atr_shares = (PositionSizing.atr_based(price, atr, risk_amount)
+                      if atr > 0 else 0)
+
+        return {
+            'symbol': symbol,
+            'price': price,
+            'atr': atr,
+            'capital': capital,
+            'risk_amount': risk_amount,
+            'stop_loss_pct': stop_loss_pct,
+            'take_profit_pct': float(p['take_profit_pct']),
+            'trailing_stop_pct': float(p['trailing_stop_pct']),
+            'position_size_pct': float(p['position_size_pct']),
+            'min_holding_days': int(p['min_holding_days']),
+            'risk_budget_amount': risk_budget,
+            'cap_amount': cap_amount,
+            'suggested_amount': suggested,
+            'atr_suggested_shares': atr_shares,
+            'params_source': 'optimized' if self.params else 'factory',
+        }
 
     def screen_stocks(self, stock_list, min_score=60, max_count=10):
         """
@@ -396,16 +470,24 @@ class QuantWorkflow:
 
 
 # 便捷函数
-def quick_analyze(symbol, days=120):
-    """快速分析单只股票"""
-    workflow = QuantWorkflow()
+def quick_analyze(symbol, days=120, params=None):
+    """快速分析单只股票 (params: 优化器下发参数字典, 可选)"""
+    workflow = QuantWorkflow(params=params)
     return workflow.quick_analysis(symbol, days)
 
 
-def full_analyze(symbol, shares=None, cost_price=None, days=120):
-    """完整分析单只股票"""
-    workflow = QuantWorkflow()
+def full_analyze(symbol, shares=None, cost_price=None, days=120, params=None):
+    """完整分析单只股票 (params 同 quick_analyze)"""
+    workflow = QuantWorkflow(params=params)
     return workflow.full_analysis(symbol, shares, cost_price, days)
+
+
+def position_advice(symbol, capital=100000.0, days=120, risk_per_trade=0.02,
+                    params=None):
+    """仓位建议便捷入口 (params 同 quick_analyze)"""
+    workflow = QuantWorkflow(params=params)
+    return workflow.position_advice(symbol, capital=capital, days=days,
+                                    risk_per_trade=risk_per_trade)
 
 
 def screen_stocks(stock_list, min_score=60, max_count=10):

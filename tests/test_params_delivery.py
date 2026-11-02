@@ -225,15 +225,25 @@ class TestWebAppParamEntry:
 
     def test_imports_and_state_wiring(self):
         src = _web_src()
-        assert ('from optimized_params import load_optimized_params, list_systems'
-                in src)
+        assert 'load_optimized_params' in src
+        assert 'list_systems' in src
+        # 体制自动选择入口 (plan §5.2.3: auto 判定 + 全局降级)
+        assert 'resolve_regime_params' in src
         assert ('from signal_generator import SignalGenerator, '
                 'generator_from_params' in src)
+        # 指标层/信号层桥接 params 周期列 (择时链路统一)
+        assert 'from indicator_params import PARAMS_COLUMN_MAP' in src
         # init: 缺键补默认 None
         assert 'st.session_state.optimized_params = None' in src
-        # 加载: 换实例 (全站信号面跟随) ; 清除: 回出厂投票制
-        assert 'st.session_state.generator = generator_from_params(params)' in src
+        # 加载: 换实例 + column_map 桥接 (全站信号面跟随);
+        # 清除: 回出厂投票制
+        assert 'generator_from_params(' in src
+        assert 'column_map=PARAMS_COLUMN_MAP' in src
         assert 'st.session_state.generator = SignalGenerator()' in src
+        # 指标层三处调用同步传 params (阶段 2 接线)
+        assert src.count(
+            'calculate_technical_indicators(data, '
+            'st.session_state.optimized_params)') == 3
 
     def test_entry_section_present(self):
         src = _web_src()

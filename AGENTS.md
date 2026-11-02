@@ -81,7 +81,7 @@ No lint/typecheck config. No pre-commit. `pyproject.toml` 存在 (项目元数�
 
 ## Testing
 
-- `tests/` is tracked; `pytest.ini` `testpaths = tests`. **990 offline tests** (990 pass, 0 skip — 装齐 `pyarrow` + `matplotlib` + `sklearn` 后全部用例实跑; 缺任一时相应用例因 `importorskip` 跳过). Run from repo root: `python3 -m pytest tests/ -q`.
+- `tests/` is tracked; `pytest.ini` `testpaths = tests`. **1014 offline tests** (1014 pass, 0 skip — 装齐 `pyarrow` + `matplotlib` + `sklearn` 后全部用例实跑; 缺任一时相应用例因 `importorskip` 跳过). Run from repo root: `python3 -m pytest tests/ -q`.
 - **每条审计修复都配了门禁** (源码级 AST + 行为断言), 按主题分文件:
 
 | 主题 | 测试文件 |
@@ -97,6 +97,7 @@ No lint/typecheck config. No pre-commit. `pyproject.toml` 存在 (项目元数�
 | 源码卫生 + 可选依赖降级契约 | `test_source_hygiene.py` `test_optional_deps.py` |
 | 部署包一致性 (批次 4) | `test_package_parity.py` |
 | 工程基座 (L1/L2/L3/L5/L9/L10/L11) | `test_project_metadata.py` |
+| 优化参数→主流程接线 (零回归/周期真变/信号消费+R5/指标同源/仓位维/体制选择) | `test_main_flow_params.py` |
 | 退市股清单 + 幸存者偏差证据 (D1) | `test_delisted_stocks.py` |
 | 其余 | `test_b_report_p2.py` `test_e2e_regression.py` `test_execution_model.py` `test_factor_library.py` `test_indicator_skill_p0.py` `test_js_runtime.py` `test_ml_predictor_timeseries.py` `test_reversal_unification.py` `test_risk_wiring.py` `test_stage1_regressions.py` `test_stage2_fix_regressions.py` `test_web_presentation_p2.py` |
 
