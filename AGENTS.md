@@ -13,9 +13,9 @@ Chinese A-share quantitative analysis framework ("Skills 股票量化分析框�
 
 ## How modules import each other
 
-Modules import each other by **bare module name** (`from stock_data_fetcher import StockDataFetcher`), relying on `sys.path.append('.')` or `sys.path.append('.claude/skills')` hacks. **Always run scripts from the repo root.** Running from any other directory breaks all intra-project imports.
+Modules import each other by **bare module name** (`from stock_data_fetcher import StockDataFetcher`). Each module that needs its siblings on `sys.path` now derives the path from **`__file__`** (`_SKILLS_DIR = os.path.dirname(os.path.abspath(__file__))`), so imports work from **any working directory** (审计 L4; 此前依赖 `sys.path.append('.')` / `('.claude/skills')` → 补丁无效且换目录即断).
 
-`pytest.ini` has `pythonpath = . .claude/skills`, so pytest imports skill modules directly.
+`pytest.ini` has `pythonpath = . .claude/skills`, so pytest imports skill modules directly. Gate: `tests/test_source_hygiene.py::TestNoCwdRelativeSysPath` (AST 扫描, 禁止 CWD 相对 `sys.path` 补丁).
 
 ## Single source of truth (`core/`, audit roadmap items 8/9)
 
@@ -110,12 +110,12 @@ No lint/typecheck config. No pre-commit. `pyproject.toml` 存在 (项目元数�
 
 **台账 `docs/OPEN_ITEMS_PLAN_2026-10-25.md` 是审计 backlog 的唯一真相源** (逐条证据 + 复验置信度 + 归因 + 对应门禁)。批次 1 之前的已修项见台账 §9 附录; 提交级细节见 `git log --oneline`。
 
-**已收口**: **复权默认口径已拍板并落地 (默认 hfq 后复权, 2026-10-30, 台账 §5.4; 门禁 `TestDefaultHfqWiring` + 早退补登记, 基线 971→984)**; **D1 退市股数据基建 (幸存者偏差由「只能标记」变「可消除」, 2026-10-30, 台账 §5.3)**; **2026-10-30 后续三项 (台账 §6, 基线 984→990)**: CI 自诞生即红的 py<3.14 注解修复 (`web_app.py` PEP 563, 三次红同根因)、`position_analyzer` MACD 水平比较冒充金叉 → 真交叉 + `signal_timing` + t+1 advisory 声明 (审计 B-L3/L4 的真实残余)、`data_cleaner` 复权文件单位误判腐败 bug (比值结构性失真 → 单位归一只对不复权文件执行) + 批量重取条目一并收口; 批次 1 (确凿小 bug, 15 条) / 批次 2 (回测数值口径: H7 容量约束 / H8 持仓状态机 / H9 walk-forward 预热 / M1 指标口径) / 批次 3 (研究有效性: H1 样本外隔离 / H10 稳健性证据 / H2 confidence 证据派生 / H5 引擎侧停牌建模 / H6 因子点时 / H4 PIT 股票池 / H3 验证链重做) / 批次 4.1 (副本治理 → 副本降级为构建产物)。
+**已收口**: **L4 CWD 相对 sys.path 补丁已清零 (2026-11-04, 外部复核推翻旧判「已过时」后修复): 12 处代码改 `__file__` 基准 + 门禁 `TestNoCwdRelativeSysPath`; 「必须从仓库根运行」约束解除**; **复权默认口径已拍板并落地 (默认 hfq 后复权, 2026-10-30, 台账 §5.4; 门禁 `TestDefaultHfqWiring` + 早退补登记, 基线 971→984)**; **D1 退市股数据基建 (幸存者偏差由「只能标记」变「可消除」, 2026-10-30, 台账 §5.3)**; **2026-10-30 后续三项 (台账 §6, 基线 984→990)**: CI 自诞生即红的 py<3.14 注解修复 (`web_app.py` PEP 563, 三次红同根因)、`position_analyzer` MACD 水平比较冒充金叉 → 真交叉 + `signal_timing` + t+1 advisory 声明 (审计 B-L3/L4 的真实残余)、`data_cleaner` 复权文件单位误判腐败 bug (比值结构性失真 → 单位归一只对不复权文件执行) + 批量重取条目一并收口; 批次 1 (确凿小 bug, 15 条) / 批次 2 (回测数值口径: H7 容量约束 / H8 持仓状态机 / H9 walk-forward 预热 / M1 指标口径) / 批次 3 (研究有效性: H1 样本外隔离 / H10 稳健性证据 / H2 confidence 证据派生 / H5 引擎侧停牌建模 / H6 因子点时 / H4 PIT 股票池 / H3 验证链重做) / 批次 4.1 (副本治理 → 副本降级为构建产物)。
 
 **仍开** (完整条目与证据见台账 §3/§5.2/§5.3/§6):
 
 - **批次 2 已全部收口** (M13/M12/M17/M14/L6-L12/M2/M3/M9/M22/M15/M18/M16 → 批次1; H8/H9/H7/M1/M5/M19/M20/M4 → 批次2)。
-- **批次 4.2 工程基座已收口** (2026-10-29: L1/L2/L3/L5/L9/L10/L11 已修 + 门禁 `test_project_metadata.py`; L4/L5 的旧证据已过时)。
+- **批次 4.2 工程基座已收口** (2026-10-29: L1/L2/L3/L9/L10/L11 已修 + 门禁 `test_project_metadata.py`; L5 已修; **L4 于 2026-11-04 重新打开并修复** —— 台账 旧判「全仓只剩 1 处、已过时」有误: 实测 13 处, 其中 `sys.path.append('.')` 5 处在核心模块, 且为**无效补丁** (指向仓库根而模块需要 `.claude/skills/`) → 12 处代码改为 `__file__` 基准 + 门禁 `TestNoCwdRelativeSysPath`)。
 - **停牌建模根本限制**: 日历来源依赖指数数据 → **无指数数据即无日历** (停牌检查如实跳过, 只剩零成交启发式)。
 - **幸存者偏差: D1 基建已落地 (2026-10-30)**: 退市清单 (`delisted refresh`) + klc 直连回退 + **四条证据规则** (`_universe_meta` 判 `survivorship_bias=False`) + CLI 补数 (`delisted fetch`); 本地已补 **337/337** → meta 可判 False。残余如实: 北交所退市无名录接口、清单覆盖起点 沪2001/深1999 (更早参考日仍保守 True)、清单需 90 天内刷新、B股 30 只在股票池范围外 (台账 §5.3)。
 

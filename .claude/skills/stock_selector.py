@@ -3,8 +3,16 @@
 选股模块
 基于技术分析和多因子模型进行股票筛选
 """
+import os
 import sys
-sys.path.append('.')
+
+# 模块路径: 基于 __file__, 不依赖启动时的工作目录 (审计 L4)
+# 旧写法 sys.path.append('.') 把 CWD 插进搜索路径, 而本模块需要
+# .claude/skills/ 在 path 上 —— 补丁无效且换目录即断
+_SKILLS_DIR = os.path.dirname(os.path.abspath(__file__))
+if _SKILLS_DIR not in sys.path:
+    sys.path.insert(0, _SKILLS_DIR)
+
 
 import pandas as pd
 

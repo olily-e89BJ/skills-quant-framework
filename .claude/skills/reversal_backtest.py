@@ -6,8 +6,16 @@ Reversal Strategy Backtest System
 验证"买在低点，卖在高点"策略的回测效果
 """
 
+import os
 import sys
-sys.path.append('.claude/skills')
+
+# 模块路径: 基于 __file__, 不依赖启动时的工作目录 (审计 L4)
+# 旧写法 sys.path.append('.claude/skills') 把 CWD 插进搜索路径, 而本模块需要
+# .claude/skills/ 在 path 上 —— 补丁无效且换目录即断
+_SKILLS_DIR = os.path.dirname(os.path.abspath(__file__))
+if _SKILLS_DIR not in sys.path:
+    sys.path.insert(0, _SKILLS_DIR)
+
 
 import pandas as pd
 import numpy as np
