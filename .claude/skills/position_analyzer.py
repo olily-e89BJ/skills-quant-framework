@@ -3,8 +3,16 @@
 持仓分析模块
 分析单只股票的持仓状况，提供操作建议和做T策略
 """
+import os
 import sys
-sys.path.append('.')
+
+# 模块路径: 基于 __file__, 不依赖启动时的工作目录 (审计 L4)
+# 旧写法 sys.path.append('.') 把 CWD 插进搜索路径, 而本模块需要
+# .claude/skills/ 在 path 上 —— 补丁无效且换目录即断
+_SKILLS_DIR = os.path.dirname(os.path.abspath(__file__))
+if _SKILLS_DIR not in sys.path:
+    sys.path.insert(0, _SKILLS_DIR)
+
 import pandas as pd
 import numpy as np
 

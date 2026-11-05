@@ -35,6 +35,39 @@ def _is_docstring(node) -> bool:
             and isinstance(node.value.value, str))
 
 
+def _cwd_relative_sys_path(py: Path) -> list:
+    """AST 扫描: 找 `sys.path.append/insert(<相对路径字面量>)` 调用。
+
+    只认**字面量**且以 '.' 开头 (相对当前工作目录) 的路径:
+      - `.`      → 仓库根; 而模块需要的是 `.claude/skills/` 在 path 上
+                   → 补丁**无效** (实测 ModuleNotFoundError: trade_constraints)
+      - `..`     → 上一级目录, 同样依赖启动目录
+      - `.claude/skills` → 仅当 CWD 恰为仓库根时才对, 换目录即断
+    正确写法: 基于 `__file__` 推导绝对路径 (见 web_app.py)。
+
+    返回 [(行号, 字面量), ...]; AST 扫描 → 注释里的同名字样不会误报。
+    """
+    tree = ast.parse(py.read_text(encoding='utf-8'))
+    found = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr in ('append', 'insert')
+                and isinstance(node.func.value, ast.Attribute)
+                and node.func.value.attr == 'path'
+                and isinstance(node.func.value.value, ast.Name)
+                and node.func.value.value.id == 'sys'):
+            continue
+        if not node.args:
+            continue
+        arg = node.args[0]
+        if (isinstance(arg, ast.Constant)
+                and isinstance(arg.value, str)
+                and arg.value.startswith('.')):
+            found.append((node.lineno, arg.value))
+    return found
+
+
 class TestModuleDocstringIntegrity:
     def test_future_import_must_not_precede_docstring(self):
         offenders = []
@@ -301,3 +334,37 @@ class TestParameterSpaceDocstringCounts:
         assert sum(actual.get(g, 0) for g in self._GROUP_KEYS.values()) \
             == actual['__total__'], (
                 f"存在未被 docstring 分项覆盖的 group: {actual}")
+
+
+class TestNoCwdRelativeSysPath:
+    """禁止 CWD 相对的 sys.path 补丁 (审计 L4)。
+
+    背景: `sys.path.append('.')` 把**启动时的工作目录**插进全局搜索路径。
+    但本仓模块要 import 的是 `.claude/skills/` 下的兄弟模块
+    (trade_constraints / core.* / stock_data_fetcher), 而 `.` 指向仓库根
+    —— 补丁**无效**: 实测 `ModuleNotFoundError: No module named
+    'trade_constraints'`; 且换目录启动即断。
+
+    正确写法见 `web_app.py` 的 `__file__` 基准 (本仓已有先例)。
+
+    运行时只在"从别的目录导入"时才炸, 日常自测看不出来 → 只能源码级拦。
+    """
+
+    def test_skills_tree_has_no_cwd_relative_sys_path(self):
+        offenders = []
+        for py, rel in _modules():
+            for lineno, lit in _cwd_relative_sys_path(py):
+                offenders.append(f"{rel}:{lineno}: sys.path.append({lit!r})")
+        assert not offenders, (
+            "CWD 相对 sys.path 补丁残留 (补丁无效: '.' 指向仓库根, 而模块需要 "
+            ".claude/skills/ 在 path 上; 换目录启动即断) —— 请改用 web_app.py "
+            f"的 __file__ 基准写法: {offenders}")
+
+    def test_repo_root_scripts_have_no_cwd_relative_sys_path(self):
+        offenders = []
+        for py in sorted(_REPO_ROOT.glob('*.py')):
+            for lineno, lit in _cwd_relative_sys_path(py):
+                offenders.append(f"{py.name}:{lineno}: sys.path.append({lit!r})")
+        assert not offenders, (
+            "仓库根脚本存在 CWD 相对 sys.path 补丁 —— 请改用 __file__ 基准: "
+            f"{offenders}")
