@@ -111,8 +111,9 @@ holdings_charts/
 !AGENTS.md
 !docs/*.md
 
-# Optimization packages
-optimization_package/
+# Optimization packages (部署包脚本入库; 构建产物 skills/ 与数据目录 stock_data/ 仍忽略)
+optimization_package/skills/
+optimization_package/stock_data/
 optimization_package.zip
 optimization_package_standard.zip
 

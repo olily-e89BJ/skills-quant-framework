@@ -3,7 +3,7 @@
 批次4 治理门禁 —— 部署包副本必须是主链的**构建产物**, 不是第二个真相源
 
 背景 (审计 H3 批次4):
-- `optimization_package/` (gitignored) 曾长期持有主链模块的**复制品**,
+- `optimization_package/` 曾长期持有主链模块的**复制品**,
   且已**漂移 5000+ 行** (optimization_engine 1106 行 / vectorized_backtest
   690 行 / historical_data_manager 577 行 / signal_generator 466 行 …),
   并且**不含**任何已审计修复 (无 H1 样本外隔离 / 无 H2 证据化 confidence /
@@ -24,8 +24,8 @@
 - 产物内容与主链**逐字节一致** (除"请勿手改"戳头) → 零手改;
 - PROVENANCE 存在且记录源 commit + 每文件 sha256;
 - 主链不再有"只在副本存在"的模块 (孤儿模块清零);
-- 工作区里的既有副本若已陈旧 → **告警但不阻塞** (该目录 gitignored,
-  不是仓库内容; 陈旧与否由 PROVENANCE 自证, 不该让每次提交都红)。
+- 工作区里的既有副本若已陈旧 → **告警但不阻塞** (`skills/` 是构建产物,
+  gitignored, 不是仓库内容; 陈旧与否由 PROVENANCE 自证, 不该让每次提交都红)。
 """
 import hashlib
 import json
@@ -41,8 +41,7 @@ SKILLS_DIR = REPO_ROOT / '.claude' / 'skills'
 # 打包脚本在**主链内** (受版本控制) —— 构建工具本身必须被跟踪,
 # 否则治理决策不可复现/评审 (审计 H3 批次4)
 PACK_PY = REPO_ROOT / '.claude' / 'skills' / 'tools' / 'pack.py'
-COPY_SKILLS = (REPO_ROOT / 'optimization_package' / 'optimization_package'
-               / 'skills')
+COPY_SKILLS = REPO_ROOT / 'optimization_package' / 'skills'
 
 sys.path.insert(0, str(PACK_PY.parent))
 import pack as pack_mod  # noqa: E402  (主链内的打包脚本)
@@ -174,8 +173,7 @@ class TestNoOrphanModules:
 
     def test_pack_script_not_left_in_ignored_copy(self):
         """打包脚本不得留在 gitignored 的副本里 (构建工具必须被跟踪)。"""
-        stale = REPO_ROOT / 'optimization_package' / 'optimization_package' / \
-            'pack.py'
+        stale = REPO_ROOT / 'optimization_package' / 'pack.py'
         assert not stale.exists(), (
             '打包脚本仍在 gitignored 的副本目录 → 构建工具不受版本控制')
 
@@ -185,7 +183,7 @@ class TestNoOrphanModules:
 
 
 class TestWorkdirCopyStatus:
-    """工作区副本状态: 陈旧只告警, 不阻塞 (目录 gitignored, 非仓库内容)。"""
+    """工作区副本状态: 陈旧只告警, 不阻塞 (skills/ 是 gitignored 构建产物)。"""
 
     def test_workdir_copy_is_self_identifying(self):
         """若工作区副本存在, 必须自带 PROVENANCE (自证来自哪个版本)。"""

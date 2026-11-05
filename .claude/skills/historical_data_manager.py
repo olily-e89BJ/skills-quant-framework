@@ -301,6 +301,15 @@ class HistoricalDataManager:
                 last_date = pd.to_datetime(existing_df['日期'].iloc[-1])
                 # 如果数据足够新(距今3天内)，直接返回
                 if last_date >= pd.to_datetime(end_date) - timedelta(days=3):
+                    # 已是最新 → **仍要登记元数据**: 中断的批量写盘会留下
+                    # "文件在但键缺" 的孤儿 (parquet 写了, metadata.json 还没
+                    # 轮到落盘), 早退不登记 → 这份文件对股票池/校验/状态
+                    # **永久失明** (幸存者偏差证据也跟着失真: 已缓存的退市股
+                    # 被算成"没缓存")。与下方"API无新数据"早退路径同一处置。
+                    self._register_local_meta(existing_df, symbol, adjust,
+                                             is_index)
+                    if _persist_metadata:
+                        self._save_metadata()
                     return existing_df
                 # 增量获取: 从最后日期的下一天开始
                 start_date = (last_date + timedelta(days=1)).strftime("%Y%m%d")
