@@ -7,9 +7,9 @@ Chinese A-share quantitative analysis framework ("Skills 股票量化分析框�
 ## Two parallel systems (do not confuse them)
 
 1. **`.claude/skills/`** — main analysis chain (43 modules + `core/`). Entry: `quant_workflow.py` (facade), `web_app.py` (Streamlit), `signal_generator.py`, `technical_analyzer.py`.
-2. **`optimization_package/optimization_package/`** — 离线部署包 (Parquet-based GA pipeline)。**2026-10-26 治理决策: 主链是唯一真相源, 本目录的 `skills/` 是构建产物** —— 由主链内 `.claude/skills/tools/pack.py` (**受版本控制**) 按依赖闭包自动生成, **请勿手改**; 每次打包写 `PROVENANCE.json` (源 commit + 每文件 sha256) → 陈旧产物无法冒充最新。改代码只改主链, 再重跑 `python .claude/skills/tools/pack.py`。决策依据与落地记录: 台账 §5.1; 门禁 `tests/test_package_parity.py`。
+2. **`optimization_package/`** — 离线部署包 (Parquet-based GA pipeline)。**2026-10-26 治理决策: 主链是唯一真相源, 本目录的 `skills/` 是构建产物** —— 由主链内 `.claude/skills/tools/pack.py` (**受版本控制**) 按依赖闭包自动生成, **请勿手改**; 每次打包写 `PROVENANCE.json` (源 commit + 每文件 sha256) → 陈旧产物无法冒充最新。改代码只改主链, 再重跑 `python .claude/skills/tools/pack.py`。决策依据与落地记录: 台账 §5.1; 门禁 `tests/test_package_parity.py`。
 
-`optimization_package/` is **gitignored** (整个目录 0 文件被跟踪) → 克隆后需重跑打包脚本才有包; 工作区副本陈旧可用 `PROVENANCE.json` 的 `source_commit` 检出。
+`optimization_package/` 的**部署脚本入库** (README / fetch_data.py / run_optimize.py / requirements.txt / *.bat); **`skills/` (pack.py 构建产物) 与 `stock_data/` (数据) 仍 gitignored** → 克隆后需重跑打包脚本才有 `skills/`; 副本陈旧可用 `skills/PROVENANCE.json` 的 `source_commit` 检出。
 
 ## How modules import each other
 

@@ -22,7 +22,7 @@
     python .claude/skills/tools/pack.py --out /tmp/pkg
 
 位置说明 (审计 H3 批次4): 本脚本**在主链内** (受版本控制) —— 旧实现在
-gitignored 的 `optimization_package/optimization_package/pack.py`, 即
+gitignored 的 `optimization_package/pack.py`, 即
 **构建工具本身不在版本控制里** → 治理决策无法复现/评审。现在脚本受
 跟踪, 产物 (skills/) 仍 gitignored。
 """
@@ -39,7 +39,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SRC_DIR = REPO_ROOT / '.claude' / 'skills'
 # 默认产物目录 (部署包根: 与 README.md / run_optimize.py 同级)
-DEFAULT_PKG_DIR = REPO_ROOT / 'optimization_package' / 'optimization_package'
+DEFAULT_PKG_DIR = REPO_ROOT / 'optimization_package'
 
 # 打包入口 (从这些模块出发, 按 import 闭包自动扩展)
 ENTRY_MODULES = [
@@ -206,7 +206,7 @@ def build_package(dst_dir: Path) -> dict:
 def main():
     parser = argparse.ArgumentParser(description='打包主链模块为离线部署包')
     parser.add_argument('--out', default=None,
-                        help='输出目录 (默认: optimization_package/optimization_package/)')
+                        help='输出目录 (默认: optimization_package/)')
     args = parser.parse_args()
 
     # 默认: 部署包根目录 (与 README.md / run_optimize.py / requirements.txt

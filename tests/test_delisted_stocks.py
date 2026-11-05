@@ -436,3 +436,47 @@ class TestWiring:
         assert 'available' in src and '没查过' in src
         # freshness 证据必须由落盘时间决定, 加载不得刷新
         assert 'fetched_at' in src
+
+
+# ================================================================ 6. 孤儿缓存自愈
+class TestOrphanCacheSelfHeal:
+    """中断的批量写盘留下"文件在但键缺"的孤儿 → 重跑必须让它**重新可见**
+
+    背景 (2026-11-05 实测): 批量取数被中断 (限流卡死/进程被杀) 时,
+    parquet 已落盘但 metadata.json 还没轮到落盘 → 该股对股票池/校验/状态
+    **永久失明**。重跑时 `fetch_and_cache` 走"已是最新"早退路径, 早退
+    **不登记元数据** → 孤儿永远补不回来 → 幸存者偏差证据把"已缓存的退市
+    股"算成"没缓存" (偏保守, 但与事实不符, 且重跑永远补不齐)。
+    """
+
+    def _orphan(self, tmp_path, code='600625'):
+        """造一个孤儿: parquet 在, metadata 无该股"""
+        m = HistoricalDataManager(data_dir=str(tmp_path))
+        path = m._get_parquet_path(code, 'hfq')
+        pd.DataFrame({
+            '日期': pd.to_datetime(['1993-01-06', '2001-04-24']),
+            'open': [1.0, 2.0], 'high': [1.0, 2.0], 'low': [1.0, 2.0],
+            'close': [1.0, 2.0], 'volume': [100, 200], 'amount': [1.0, 2.0],
+        }).to_parquet(path, engine='pyarrow', index=False)
+        assert code not in m.metadata['stocks']
+        return m, code
+
+    def test_early_return_registers_orphan(self, tmp_path):
+        """已是最新 (早退) 也必须登记 → 孤儿重跑即自愈"""
+        m, code = self._orphan(tmp_path)
+        # end_date 紧跟缓存最后一天 → 触发"已是最新"早退, 不发请求
+        df = m.fetch_and_cache(code, start_date='19900101', end_date='20010425',
+                                adjust='hfq', _persist_metadata=False)
+        assert df is not None and len(df) == 2
+        assert f'{code}_hfq' in m.metadata['stocks'], \
+            '早退路径未登记 → 孤儿对股票池永久失明'
+        assert m.metadata['stocks'][f'{code}_hfq']['last_date'] == '2001-04-24'
+
+    def test_orphan_becomes_visible_to_universe(self, tmp_path):
+        """自愈后该股进入股票池 (元数据是股票池的唯一入口)"""
+        m, code = self._orphan(tmp_path)
+        m.fetch_and_cache(code, start_date='19900101', end_date='20010425',
+                          adjust='hfq', _persist_metadata=False)
+        m._save_metadata()
+        reloaded = HistoricalDataManager(data_dir=str(tmp_path))
+        assert code in reloaded.get_all_symbols()
